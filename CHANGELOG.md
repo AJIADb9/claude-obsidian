@@ -12,7 +12,7 @@ implementation record for older releases.
 - Replaced the animated README hero with the selected static PNG cover while
   preserving the warm orbital style.
 
-## [2.0.0] - 2026-07-14
+## [2.0.0] - 2026-07-30
 
 Reliability and evidence refoundation.
 
@@ -46,9 +46,9 @@ Reliability and evidence refoundation.
 - Rebuilt the README around the product promise, compounding loop, real vault
   examples, concise onboarding, trust architecture, and honest capability
   boundaries.
-- Adopted the warm orbital cover system, added a metadata-free WebP under 500
-  KB, preserved the Obsidian screenshots, and aligned the self-contained
-  animated SVG hero and reduced-motion architecture diagrams to the new style.
+- Adopted the warm orbital cover system, added the selected metadata-stripped
+  static PNG cover, preserved the Obsidian screenshots, and aligned the
+  self-contained SVG architecture diagrams to the new style.
 - All 15 skills now use canonical two-field Agent Skills frontmatter and one
   host-neutral operation contract.
 - Parallel ingestion and research workers are draft-only. One orchestrator
