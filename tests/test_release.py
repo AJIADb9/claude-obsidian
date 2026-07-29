@@ -198,8 +198,15 @@ class BuildTests(ReleaseRepo):
                 self.assertIn("invalid_config", _codes(report))
 
     def test_portable_unicode_path_collision_is_rejected_before_build(self) -> None:
-        (self.repo / "docs" / "Ś.md").write_text("one\n", encoding="utf-8")
-        (self.repo / "docs" / "ſ́.md").write_text("two\n", encoding="utf-8")
+        first = self.repo / "docs" / "Ś.md"
+        second = self.repo / "docs" / "ſ́.md"
+        first.write_text("one\n", encoding="utf-8")
+        second.write_text("two\n", encoding="utf-8")
+        if first.samefile(second):
+            self.skipTest(
+                "filesystem normalizes the two Unicode collision fixtures "
+                "to one directory entry"
+            )
         self.commit("portable collision")
 
         report = self.build()
