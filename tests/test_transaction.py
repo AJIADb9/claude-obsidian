@@ -2447,7 +2447,12 @@ def test_complete_result_reconstruction_rejects_existing_portable_alias() -> Non
         transaction = vault / ".vault-meta/transactions" / operation_id
         result_path = transaction / "changed-paths.json"
         result_path.unlink()
-        (vault / "wiki/ſ́.md").write_text("outside alias\n", encoding="utf-8")
+        canonical_path = vault / "wiki/Ś.md"
+        alias_path = vault / "wiki/ſ́.md"
+        alias_path.write_text("outside alias\n", encoding="utf-8")
+        if canonical_path.samefile(alias_path):
+            assert len(list((vault / "wiki").iterdir())) == 1
+            return
         try:
             recover_incomplete(vault)
         except TransactionRecoveryError as exc:
