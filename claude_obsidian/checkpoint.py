@@ -75,7 +75,25 @@ def _descriptor_root_path(root: Path) -> tuple[Path, tuple[int, ...]]:
     if sys.platform.startswith("linux"):
         candidate = Path(f"/proc/self/fd/{descriptor}")
     elif sys.platform == "darwin":
-        candidate = Path(f"/dev/fd/{descriptor}")
+        try:
+            import fcntl
+
+            resolved = fcntl.fcntl(
+                descriptor,
+                fcntl.F_GETPATH,
+                bytes(1024),
+            ).split(b"\0", 1)[0]
+        except (AttributeError, OSError) as exc:
+            raise CheckpointError(
+                "CHECKPOINT_FD_CWD_UNSUPPORTED",
+                f"cannot resolve the pinned vault descriptor for Git: {exc}",
+            ) from exc
+        if not resolved:
+            raise CheckpointError(
+                "CHECKPOINT_FD_CWD_UNSUPPORTED",
+                "cannot resolve the pinned vault descriptor for Git",
+            )
+        candidate = Path(os.fsdecode(resolved))
     else:
         raise CheckpointError(
             "CHECKPOINT_FD_CWD_UNSUPPORTED",
