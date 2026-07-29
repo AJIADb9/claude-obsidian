@@ -250,8 +250,8 @@
     {
       "mode": "0644",
       "path": "claude_obsidian/checkpoint.py",
-      "sha256": "f18ed8999ef51b9f2138cc8dffaa03001f0fab29daef06d3e34e77ed9e415614",
-      "size": 49683
+      "sha256": "80853745ccf4049361afebc1e383ba618e7a7b32db72db510b458edf8d29a8f1",
+      "size": 50306
     },
     {
       "mode": "0644",
@@ -1193,6 +1193,6 @@
     }
   },
   "schema_version": 1,
-  "source_commit": "a0dd1fb81a47b5a02351f2ce19c2a0f213587908",
-  "source_date_epoch": 1785360445
+  "source_commit": "c0a39a3099d4de845d865d223b615fafaf7f17e3",
+  "source_date_epoch": 1785360650
 }
