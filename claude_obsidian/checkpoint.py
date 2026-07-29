@@ -81,15 +81,24 @@ def _descriptor_root_path(root: Path) -> tuple[Path, tuple[int, ...]]:
             "CHECKPOINT_FD_CWD_UNSUPPORTED",
             "descriptor-anchored Git requires WSL/Linux or macOS",
         )
+    probe: int | None = None
     try:
         opened = os.fstat(descriptor)
-        alias = candidate.stat()
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        probe = os.open(candidate, flags)
+        alias = os.fstat(probe)
     except OSError as exc:
         raise CheckpointError(
             "CHECKPOINT_FD_CWD_UNSUPPORTED",
             f"cannot expose the pinned vault descriptor to Git: {exc}",
         ) from exc
-    if (opened.st_dev, opened.st_ino) != (alias.st_dev, alias.st_ino):
+    finally:
+        if probe is not None:
+            os.close(probe)
+    if (
+        not stat.S_ISDIR(alias.st_mode)
+        or (opened.st_dev, opened.st_ino) != (alias.st_dev, alias.st_ino)
+    ):
         raise CheckpointError(
             "CHECKPOINT_FD_CWD_UNSUPPORTED",
             "descriptor Git cwd does not identify the selected vault",
