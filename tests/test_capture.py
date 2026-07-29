@@ -55,7 +55,10 @@ def make_vault(root: Path) -> Path:
     (root / "wiki").mkdir()
     (root / ".raw").mkdir()
     (root / "inbox").mkdir()
-    return root
+    # macOS exposes temporary directories through both /var and /private/var.
+    # Return the canonical path so assertions use the same spelling as the
+    # production path-safety helpers.
+    return root.resolve(strict=True)
 
 
 def copy_fixture(vault: Path, name: str = "sample.md") -> Path:
