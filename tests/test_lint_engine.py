@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import importlib.util
 import json
@@ -286,7 +287,18 @@ tags:
             (vault / ".obsidian").mkdir(parents=True)
             (vault / "wiki").mkdir()
             raw_path = os.fsencode(vault / "wiki") + b"/Bad-\xff.md"
-            descriptor = os.open(raw_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                descriptor = os.open(
+                    raw_path,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o600,
+                )
+            except OSError as exc:
+                if exc.errno in {errno.EILSEQ, errno.EINVAL}:
+                    self.skipTest(
+                        "filesystem rejects filenames that are not valid UTF-8"
+                    )
+                raise
             try:
                 os.write(descriptor, b"# Bad\n")
             finally:
