@@ -82,13 +82,13 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "45e7bc857202830a758cbac43b8c0f1292e02d1130358466d0ed7aa52dc02f34",
-      "size": 8831
+      "sha256": "6694906001c44a8303d535c6cf23e2e5ccba0796769cef3c226fb06fad0cf2f7",
+      "size": 8812
     },
     {
       "mode": "0644",
       "path": "CITATION.cff",
-      "sha256": "b6c59d8b5db0f2ddcdcb80d3ba28655f57dc3017640eed9cfec6b1b7974f49de",
+      "sha256": "e352457e971a34bbc42c73e5fe492e4745e3f1f0b32810257dabd3806d115c3f",
       "size": 468
     },
     {
@@ -1193,6 +1193,6 @@
     }
   },
   "schema_version": 1,
-  "source_commit": "98ec60bcf6611be7ad96b92d4bf144869a27749f",
-  "source_date_epoch": 1785283200
+  "source_commit": "fc7eafc989245bef7da902314fc8e8fe2c313369",
+  "source_date_epoch": 1785359485
 }
