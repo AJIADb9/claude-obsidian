@@ -1108,8 +1108,8 @@
     {
       "mode": "0644",
       "path": "tests/test_release.py",
-      "sha256": "c43afde9ff7ad992919b8070ea8aef9124edeccbc0c2b7709da38178c8830e1f",
-      "size": 35854
+      "sha256": "a1953341b61b90c8980e0d49b0af72ce54ab9698dfc108855b045a63e6667e87",
+      "size": 36089
     },
     {
       "mode": "0755",
@@ -1193,6 +1193,6 @@
     }
   },
   "schema_version": 1,
-  "source_commit": "86878164936441f0fb2e72687c4c6c5914abe7b1",
-  "source_date_epoch": 1785360881
+  "source_commit": "1f856f5037648263e0b13461cd2ce761fbd1a2c7",
+  "source_date_epoch": 1785361050
 }
