@@ -1584,7 +1584,7 @@ def test_sequential_transactions_reject_existing_unicode_portable_alias() -> Non
                 "an existing NFC(casefold) alias must block publication"
             )
         assert (vault / "wiki/Ś.md").read_text(encoding="utf-8") == "# One\n"
-        assert not (vault / "wiki/ſ́.md").exists()
+        assert len(list((vault / "wiki").iterdir())) == 1
 
 
 def test_approval_binds_existing_and_result_file_modes() -> None:
