@@ -5,7 +5,9 @@ Notable changes to claude-obsidian are recorded here using
 [Semantic Versioning](https://semver.org/). Git history retains the detailed
 implementation record for older releases.
 
-## [Unreleased]
+## [2.1.0] - 2026-07-31
+
+Native Windows compatibility.
 
 ### Fixed
 
