@@ -22,9 +22,12 @@ implementation record for older releases.
 - Retrieval no longer returns zero results for vaults with CRLF line endings:
   the chunker, index, and retriever now hash page bodies byte-identically
   (previously `read_text` newline normalization made every chunk look stale).
-- Selecting a vault whose on-disk name differs only by case or Unicode
-  normalization from the spelling used on the command line no longer raises a
-  spurious `CASEFOLD_PATH_ALIAS` on case-insensitive filesystems (APFS, NTFS).
+- Under a held mutation lock, a vault whose on-disk name differs only by case
+  from the spelling used on the command line is no longer misreported as its
+  own portable alias on case-insensitive filesystems (APFS, NTFS); the
+  descriptor-pinned vault object is recognized as itself. Inspect-time
+  auditing keeps the stricter shipped behavior, since an absent init root on
+  a case-insensitive volume cannot distinguish itself from an alien sibling.
 
 ### Changed
 

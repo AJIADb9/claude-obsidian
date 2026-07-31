@@ -1124,10 +1124,12 @@ def _is_leaf_itself(parent: int | Path, name: str, self_lstat: os.stat_result) -
 
 
 def _assert_no_portable_vault_root_alias(vault_root: Path) -> None:
-    try:
-        self_lstat: os.stat_result | None = os.lstat(vault_root)
-    except OSError:
-        self_lstat = None
+    # No self_lstat here: on case-insensitive filesystems os.lstat(vault_root)
+    # resolves ANY casing, so for an absent root (init) it would misidentify
+    # an alien same-key sibling as "the vault itself" and skip the rejection.
+    # The self-entry skip is safe only where the vault object is already
+    # descriptor-pinned (the MutationLock call sites).  Native Windows does
+    # not need it here because canonical() case-normalizes existing paths.
     if _supports_confined_dirfd():
         try:
             parent_fd = os.open(vault_root.parent, directory_open_flags())
@@ -1136,9 +1138,7 @@ def _assert_no_portable_vault_root_alias(vault_root: Path) -> None:
                 "UNSAFE_VAULT_IDENTITY", f"cannot pin vault parent: {exc}"
             ) from exc
         try:
-            _assert_no_portable_vault_leaf_alias_at(
-                parent_fd, vault_root.name, self_lstat=self_lstat
-            )
+            _assert_no_portable_vault_leaf_alias_at(parent_fd, vault_root.name)
         finally:
             os.close(parent_fd)
         return
@@ -1149,9 +1149,7 @@ def _assert_no_portable_vault_root_alias(vault_root: Path) -> None:
         raise TransactionValidationError(
             "UNSAFE_VAULT_IDENTITY", f"cannot pin vault parent: {exc}"
         ) from exc
-    _assert_no_portable_vault_leaf_alias_at(
-        parent, vault_root.name, self_lstat=self_lstat
-    )
+    _assert_no_portable_vault_leaf_alias_at(parent, vault_root.name)
 
 
 def _path_mode_identity(vault: Path) -> dict[str, Any]:
