@@ -185,8 +185,8 @@ def sha256(text):
 def _directory_flags():
     return (
         os.O_RDONLY
-        | os.O_DIRECTORY
-        | os.O_NOFOLLOW
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
         | getattr(os, "O_CLOEXEC", 0)
         | getattr(os, "O_NONBLOCK", 0)
     )
@@ -393,7 +393,10 @@ def read_page(path, *, root_fd=None):
     if root_fd is None:
         if not path.is_file():
             raise SystemExit(EXIT_PAGE_MISSING)
-        return path.read_text(encoding="utf-8", errors="replace")
+        # Byte-identical with the fd branch below: read_text would CRLF-
+        # normalize, so the same page would hash differently per branch and
+        # every derived chunk would be treated as stale on CRLF vaults.
+        return path.read_bytes().decode("utf-8", errors="replace")
     try:
         relative = path.relative_to(VAULT_ROOT).as_posix()
         raw = read_vault_regular(
@@ -845,6 +848,10 @@ def collect_pages(target):
             pages.append(path)
         return sorted(pages)
     p = Path(target)
+    # Deliberately no rooted-/drive-prefix rejection here (unlike the chunk
+    # validators in rerank.py/bm25-index.py): this is CLI target selection, and
+    # process_selection() enforces containment via resolve()+is_relative_to
+    # against WIKI_DIR plus _safe_vault_path before any chunk is touched.
     if not p.is_absolute():
         p = VAULT_ROOT / p
     return [p]

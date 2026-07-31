@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import stat
@@ -48,6 +49,110 @@ def _portable_path_key(path: Path) -> str:
     """Return the case/normalization-insensitive identity used by policy."""
 
     return unicodedata.normalize("NFC", os.fspath(path).replace("\\", "/").casefold())
+
+
+def supports_confined_dirfd() -> bool:
+    """True when the POSIX openat-style confinement primitives all exist.
+
+    Native Windows lacks ``O_DIRECTORY`` and dir_fd support entirely; callers
+    take a path-based degraded branch there instead of descriptor confinement.
+    ``legacy_lock._supports_confined_runtime`` and the inline probe in
+    ``hook_adapter`` intentionally require different primitive sets and stay
+    separate.
+    """
+
+    return (
+        os.name != "nt"
+        and hasattr(os, "O_DIRECTORY")
+        and os.open in os.supports_dir_fd
+        and os.mkdir in os.supports_dir_fd
+        and os.rename in os.supports_dir_fd
+        and os.stat in os.supports_dir_fd
+        and os.unlink in os.supports_dir_fd
+    )
+
+
+def directory_open_flags() -> int:
+    """Directory-pinning open flags; flags absent on this platform become 0."""
+
+    return (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+
+
+def read_open_flags() -> int:
+    """Regular-file read flags.
+
+    ``O_BINARY`` matters: the Windows CRT defaults descriptors to text mode,
+    which strips ``\\r\\n`` during reads and silently corrupts content hashes.
+    """
+
+    return (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+
+
+# Name-surrogate reparse tags only: symlinks and junctions/mount points redirect
+# the name lookup, while cloud placeholders (OneDrive/Dropbox) and dedup files
+# carry FILE_ATTRIBUTE_REPARSE_POINT without aliasing the path, so a blanket
+# attribute check would fail-closed every vault stored in a synced folder.
+_NAME_SURROGATE_REPARSE_TAGS = frozenset(
+    {
+        getattr(stat, "IO_REPARSE_TAG_SYMLINK", 0xA000000C),
+        getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003),
+    }
+)
+
+
+def is_name_surrogate(value: os.stat_result) -> bool:
+    """True when the stat result names a path-redirecting object.
+
+    Covers POSIX symlinks plus Windows junctions/mount points, which since
+    Python 3.8 lstat as ordinary directories (``S_ISLNK`` is False) but still
+    redirect name lookups exactly like a symlink would.
+    """
+
+    return (
+        stat.S_ISLNK(value.st_mode)
+        or getattr(value, "st_reparse_tag", 0) in _NAME_SURROGATE_REPARSE_TAGS
+    )
+
+
+def assert_unaliased_directory(path: str | os.PathLike[str] | Path) -> os.stat_result:
+    """lstat ``path`` and fail unless it is a plain, non-redirecting directory.
+
+    This is a point-in-time check, not descriptor pinning: it offers the same
+    guarantee level as the documented degraded (non-dirfd) mode.  Raises
+    ``OSError(ELOOP)`` for a symlink or a Windows junction/mount point and
+    ``OSError(ENOTDIR)`` for anything that is not a directory, mirroring what
+    ``O_DIRECTORY | O_NOFOLLOW`` opens produce on POSIX so callers can share
+    one error-mapping path.
+    """
+
+    value = os.lstat(path)
+    if is_name_surrogate(value):
+        raise OSError(errno.ELOOP, f"path is a symlink or directory junction: {path}")
+    if not stat.S_ISDIR(value.st_mode):
+        raise OSError(errno.ENOTDIR, f"not a directory: {path}")
+    return value
+
+
+def is_same_object(left: os.stat_result, right: os.stat_result) -> bool:
+    """samestat with a degraded-identity guard.
+
+    A zero inode (FAT/exFAT, some SMB redirectors) means the filesystem does
+    not expose stable identity, so equality can never be asserted.
+    """
+
+    if left.st_ino == 0 or right.st_ino == 0:
+        return False
+    return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
 
 
 def _strict_json_loads(value: str) -> object:
@@ -109,10 +214,7 @@ def _read_workspace_config(path: Path) -> Path:
                 f"workspace config must be a regular file of at most "
                 f"{MAX_WORKSPACE_CONFIG_BYTES} bytes"
             )
-        descriptor = os.open(
-            path,
-            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
-        )
+        descriptor = os.open(path, read_open_flags())
         opened = os.fstat(descriptor)
         if (
             not stat.S_ISREG(opened.st_mode)

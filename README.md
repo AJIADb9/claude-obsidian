@@ -345,10 +345,15 @@ remain yours.
 - Bash for setup, optional extensions, and shell test suites
 - Git only for development, releases, or an explicit knowledge checkpoint
 
-CI exercises Linux and macOS. On Windows, use WSL; native Windows and Git Bash
-are not current compatibility guarantees. Optional tools such as Obsidian CLI,
-Ollama, and defuddle are capability-detected and affect only their dependent
-workflow.
+CI exercises Linux and macOS, plus a native-Windows smoke job for the portable
+surface. On native Windows (including Git Bash), read-only inspection and
+dry-run commands work; vault writes require WSL and fail closed with an
+`UNSUPPORTED_PLATFORM` error otherwise. Approval hashes bind to the reviewing
+environment's filesystem identity, so run the dry-run review inside WSL when
+the apply will happen there — a natively produced `approved_plan_sha256`
+cannot be replayed from WSL. The bash setup scripts and shell test suites
+remain POSIX-only. Optional tools such as Obsidian CLI, Ollama, and defuddle
+are capability-detected and affect only their dependent workflow.
 
 ## Development and release
 

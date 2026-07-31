@@ -45,6 +45,7 @@ from .transaction import (
     MutationLock,
     TransactionError,
     TransactionValidationError,
+    _require_write_platform,
     apply_bundle,
     inspect_bundle,
     read_vault_regular,
@@ -810,6 +811,10 @@ def command_init(args: argparse.Namespace) -> int:
             }
         )
         return 0
+    # Refuse unsupported write platforms before creating the destination
+    # directory: a failed Init root is never path-deleted (see below), so the
+    # check must precede the mkdir rather than surface later in apply_bundle.
+    _require_write_platform()
     reviewed_plan = _require_approved_plan(args, destination, operation)
     approval = str(reviewed_plan["approval_sha256"])
     created = False
@@ -1218,7 +1223,27 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _force_utf8_stdio() -> None:
+    """Emit UTF-8 regardless of the console code page.
+
+    On Windows, redirected stdout/stderr default to the locale encoding
+    (cp1252), so any non-ASCII page title crashes ``_emit``'s
+    ``ensure_ascii=False`` output.  ``newline=""`` keeps JSON output
+    byte-identical across platforms.
+    """
+
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", newline="")
+        except (OSError, ValueError):
+            pass
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    _force_utf8_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

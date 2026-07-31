@@ -210,8 +210,8 @@ def parse_top_k(value):
 def _directory_flags():
     return (
         os.O_RDONLY
-        | os.O_DIRECTORY
-        | os.O_NOFOLLOW
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
         | getattr(os, "O_CLOEXEC", 0)
         | getattr(os, "O_NONBLOCK", 0)
     )
@@ -389,7 +389,13 @@ def source_page_is_current(data, vault_root, hash_cache, *, vault_root_fd=None):
         return False, "missing page_path"
 
     rel = Path(page_path)
-    if rel.is_absolute():
+    # On Windows a drive-less rooted path ("/x") and a drive prefix ("C:x")
+    # are not "absolute" under pathlib but still escape a joined root.
+    if (
+        rel.is_absolute()
+        or page_path.startswith(("/", "\\"))
+        or re.match(r"^[A-Za-z]:", page_path)
+    ):
         return False, "absolute page_path"
 
     root = vault_root.resolve()
@@ -413,7 +419,10 @@ def source_page_is_current(data, vault_root, hash_cache, *, vault_root_fd=None):
                     return False, "page_path is outside wiki"
                 if not source.is_file():
                     return False, "source page missing"
-                text = source.read_text(encoding="utf-8", errors="replace")
+                # Byte-identical with the fd branch below: read_text would
+                # CRLF-normalize, making the same page hash two different ways
+                # and permanently marking every chunk stale on CRLF vaults.
+                text = source.read_bytes().decode("utf-8", errors="replace")
             else:
                 raw = read_vault_regular(
                     root,

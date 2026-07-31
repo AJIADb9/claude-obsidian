@@ -644,6 +644,22 @@ def test_hashless_or_malformed_chunks_are_never_indexed():
         page.unlink()
 
 
+def test_crlf_source_page_stays_current():
+    # Regression: source_page_is_current hashed pages via read_text (which
+    # normalizes CRLF) while the locked build path hashed raw bytes, so every
+    # chunk of a CRLF page was permanently reported stale.  Both sides must
+    # hash identical bytes.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        page = root / "wiki" / "fake" / "c-000001.md"
+        page.parent.mkdir(parents=True, exist_ok=True)
+        page.write_bytes(b"crlf line one\r\ncrlf line two\r\n")
+        text = page.read_bytes().decode("utf-8", errors="replace")
+        record = synthetic_chunk(0, "c-000001", text, text)
+        current, reason = bm25.source_page_is_current(record, root, {})
+        assert_true(f"CRLF page stays current ({reason})", current)
+
+
 def test_cli_build_refuses_shared_vault_writer_lock():
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
@@ -795,7 +811,12 @@ def test_pinned_build_never_follows_meta_or_bm25_aliases():
             outside_leaf = outside_bm25 / "index.json"
             outside_leaf.write_bytes(b"outside-index\n")
             (safe_meta / "bm25").symlink_to(outside_bm25, target_is_directory=True)
-            safe_fd = os.open(safe_meta, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            safe_fd = os.open(
+                safe_meta,
+                os.O_RDONLY
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+            )
             try:
                 try:
                     bm25.write_index({"schema_version": 1}, meta_fd=safe_fd)
@@ -977,6 +998,7 @@ def main():
     test_query_score_monotonicity()
     test_rebuild_reconciles_changed_and_deleted_source_pages()
     test_hashless_or_malformed_chunks_are_never_indexed()
+    test_crlf_source_page_stays_current()
     test_cli_build_refuses_shared_vault_writer_lock()
     test_pinned_build_survives_lexical_root_replacement()
     test_pinned_build_never_follows_meta_or_bm25_aliases()

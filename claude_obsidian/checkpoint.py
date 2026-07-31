@@ -18,7 +18,7 @@ from typing import Any, Mapping, Sequence
 
 from .json_utils import parse_finite_json_float
 from .lint_engine import lint_vault
-from .paths import canonical
+from .paths import canonical, directory_open_flags, read_open_flags
 from .transaction import (
     RESULT_SCHEMA,
     MutationLock,
@@ -425,11 +425,7 @@ class _CheckpointStore:
                 or before.st_size > MAX_CHECKPOINT_STATE_BYTES
             ):
                 raise CheckpointError(code, f"{label} is not a bounded regular file")
-            descriptor = os.open(
-                name,
-                os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
-                dir_fd=self.operation_fd,
-            )
+            descriptor = os.open(name, read_open_flags(), dir_fd=self.operation_fd)
             opened = os.fstat(descriptor)
             if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
                 raise CheckpointError(code, f"{label} changed before it could be read")
@@ -530,9 +526,7 @@ class _CheckpointStore:
             raise CheckpointError(
                 "CORRUPT_CHECKPOINT", f"cannot list transaction state: {exc}"
             ) from exc
-        flags = (
-            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
-        )
+        flags = directory_open_flags()
         for name in names:
             if name == self.operation_id:
                 continue

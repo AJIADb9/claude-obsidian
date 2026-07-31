@@ -29,6 +29,7 @@
     "wiki/meta/**"
   ],
   "include_files": [
+    ".gitattributes",
     ".gitignore",
     "AGENTS.md",
     "ATTRIBUTION.md",

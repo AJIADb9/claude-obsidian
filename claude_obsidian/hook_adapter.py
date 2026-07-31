@@ -16,6 +16,7 @@ from .paths import (
     VaultSelectionError,
     assert_within,
     canonical,
+    is_name_surrogate,
     is_relative_to,
     resolve_vault_root,
 )
@@ -47,8 +48,13 @@ def _bounded_regular_bytes(root: Path, path: Path, limit: int) -> bytes | None:
         | getattr(os, "O_CLOEXEC", 0)
         | getattr(os, "O_NOFOLLOW", 0)
     )
+    # O_BINARY keeps the Windows CRT from CRLF-translating reads at the
+    # descriptor layer, which would corrupt content passed to hashing callers.
     file_flags = (
-        os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
     )
     if os.name != "nt" and os.open in os.supports_dir_fd and hasattr(os, "O_DIRECTORY"):
         try:
@@ -83,7 +89,7 @@ def _bounded_regular_bytes(root: Path, path: Path, limit: int) -> bytes | None:
                 metadata = cursor.lstat()
             except OSError:
                 return None
-            if stat.S_ISLNK(metadata.st_mode):
+            if is_name_surrogate(metadata):
                 return None
         try:
             descriptor = os.open(path, file_flags)
