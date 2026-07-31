@@ -795,7 +795,12 @@ def test_pinned_build_never_follows_meta_or_bm25_aliases():
             outside_leaf = outside_bm25 / "index.json"
             outside_leaf.write_bytes(b"outside-index\n")
             (safe_meta / "bm25").symlink_to(outside_bm25, target_is_directory=True)
-            safe_fd = os.open(safe_meta, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            safe_fd = os.open(
+                safe_meta,
+                os.O_RDONLY
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+            )
             try:
                 try:
                     bm25.write_index({"schema_version": 1}, meta_fd=safe_fd)

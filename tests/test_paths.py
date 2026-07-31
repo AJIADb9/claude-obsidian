@@ -17,7 +17,11 @@ from claude_obsidian.paths import (
     VaultSelectionError,
     assert_not_plugin_tree,
     assert_within,
+    directory_open_flags,
+    is_same_object,
+    read_open_flags,
     resolve_vault_root,
+    supports_confined_dirfd,
 )
 
 
@@ -235,6 +239,29 @@ def test_product_tree_exclusion_uses_portable_case_and_unicode_identity() -> Non
             raise AssertionError("post-casefold canonical aliases must be rejected")
 
 
+def test_platform_flag_helpers_degrade_without_posix_flags() -> None:
+    import stat as stat_helper
+
+    directory_flags = directory_open_flags()
+    read_flags = read_open_flags()
+    assert directory_flags & os.O_RDONLY == os.O_RDONLY
+    assert read_flags & os.O_RDONLY == os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        assert directory_flags & os.O_DIRECTORY
+        saved = os.O_DIRECTORY
+        del os.O_DIRECTORY
+        try:
+            assert directory_open_flags() & saved == 0
+            assert not supports_confined_dirfd()
+        finally:
+            os.O_DIRECTORY = saved
+    fake_zero = os.stat_result((stat_helper.S_IFDIR, 0, 3, 1, 0, 0, 0, 0, 0, 0))
+    fake_real = os.stat_result((stat_helper.S_IFDIR, 42, 3, 1, 0, 0, 0, 0, 0, 0))
+    assert is_same_object(fake_real, fake_real)
+    assert not is_same_object(fake_zero, fake_zero), "zero inode is never equal"
+    assert not is_same_object(fake_real, fake_zero)
+
+
 def main() -> None:
     test_precedence_and_config()
     test_plugin_root_rejected_implicitly_and_explicitly()
@@ -245,6 +272,7 @@ def main() -> None:
     test_workspace_config_root_must_be_an_object()
     test_workspace_config_rejects_ambiguous_or_nonregular_authority()
     test_product_tree_exclusion_uses_portable_case_and_unicode_identity()
+    test_platform_flag_helpers_degrade_without_posix_flags()
     print("All path tests passed.")
 
 

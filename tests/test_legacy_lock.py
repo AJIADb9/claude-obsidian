@@ -151,11 +151,13 @@ class LegacyLockRuntimeRaceTests(unittest.TestCase):
             self.assertEqual(component_error.exception.exit_code, 4)
 
     def test_lock_directory_enumeration_is_cardinality_bounded(self) -> None:
+        if os.name == "nt":
+            self.skipTest("fd-based directory enumeration is POSIX-only")
         with tempfile.TemporaryDirectory() as directory:
             locks = Path(directory)
             (locks / "one").write_text("x", encoding="utf-8")
             (locks / "two").write_text("x", encoding="utf-8")
-            descriptor = os.open(locks, os.O_RDONLY | os.O_DIRECTORY)
+            descriptor = os.open(locks, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
             try:
                 with (
                     mock.patch.object(legacy_lock, "MAX_LOCK_DIRECTORY_ENTRIES", 1),
