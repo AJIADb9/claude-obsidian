@@ -25,7 +25,17 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from .json_utils import parse_finite_json_float
-from .paths import VaultSelectionError, assert_within, canonical
+from .paths import (
+    VaultSelectionError,
+    assert_unaliased_directory,
+    assert_within,
+    canonical,
+    directory_open_flags,
+    is_name_surrogate,
+    is_same_object,
+    read_open_flags,
+    supports_confined_dirfd,
+)
 
 
 BUNDLE_SCHEMA = "claude-obsidian.transaction.v1"
@@ -190,6 +200,24 @@ def _portable_name_key(value: str) -> str:
     return unicodedata.normalize("NFC", value.casefold())
 
 
+# Portable-vault write-path rules (enforced on every platform so an inspect
+# verdict means the same thing everywhere).  ``:`` names an NTFS alternate data
+# stream — invisible to directory enumeration, so the alias audit could never
+# see it; the rest are Win32-invalid filename characters.  Mirrors the capture
+# layer's filename policy (capture._RESERVED_WINDOWS_NAMES).
+_UNPORTABLE_PATH_CHARACTERS = frozenset(':<>|?*"')
+_RESERVED_DEVICE_NAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10)),
+    }
+)
+
+
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -234,6 +262,11 @@ def _normalize_vault_path(value: Any) -> str:
         raise TransactionValidationError(
             "INVALID_WRITE_PATH", "path contains a control character or backslash"
         )
+    if any(character in _UNPORTABLE_PATH_CHARACTERS for character in value):
+        raise TransactionValidationError(
+            "UNPORTABLE_WRITE_PATH",
+            f"path contains a character that is unsafe on portable filesystems: {value}",
+        )
     parsed = PurePosixPath(value)
     if parsed.is_absolute() or value in {"", "."} or ".." in parsed.parts:
         raise TransactionValidationError(
@@ -254,6 +287,20 @@ def _normalize_vault_path(value: Any) -> str:
             "WRITE_PATH_TOO_LONG",
             f"path exceeds the {MAX_TRANSACTION_PATH_BYTES}-byte portability limit: {value}",
         )
+    for component in parsed.parts:
+        if component.endswith((".", " ")):
+            # Win32 strips trailing dots/spaces at the syscall boundary, so such
+            # a name silently aliases its stripped form — an alias class the
+            # casefold audit cannot observe.  Reject it everywhere.
+            raise TransactionValidationError(
+                "UNPORTABLE_WRITE_PATH",
+                f"path component may not end with a dot or space: {value}",
+            )
+        if component.split(".", 1)[0].upper() in _RESERVED_DEVICE_NAMES:
+            raise TransactionValidationError(
+                "UNPORTABLE_WRITE_PATH",
+                f"path component is a reserved device name: {value}",
+            )
     return normalized
 
 
@@ -281,10 +328,10 @@ def _safe_vault_path(vault_root: Path, value: Any) -> tuple[str, Path]:
             raise TransactionValidationError(
                 "UNSAFE_VAULT_PATH", f"cannot inspect {normalized}: {exc}"
             ) from exc
-        if stat.S_ISLNK(metadata.st_mode):
+        if is_name_surrogate(metadata):
             raise TransactionValidationError(
                 "SYMLINK_WRITE_PATH",
-                f"transaction paths may not traverse symlinks: {normalized}",
+                f"transaction paths may not traverse symlinks or junctions: {normalized}",
             )
         if index < len(parsed.parts) - 1 and not stat.S_ISDIR(metadata.st_mode):
             raise TransactionValidationError(
@@ -327,7 +374,7 @@ def _safe_directory(
                 "UNSAFE_RUNTIME_PATH",
                 f"cannot inspect runtime directory {relative}: {exc}",
             ) from exc
-        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        if is_name_surrogate(metadata) or not stat.S_ISDIR(metadata.st_mode):
             raise TransactionValidationError(
                 "UNSAFE_RUNTIME_PATH",
                 f"runtime directory is not a safe directory: {relative}",
@@ -351,15 +398,7 @@ def safe_transactions_root(vault_root: Path | str, *, create: bool = False) -> P
 
 
 def _supports_confined_dirfd() -> bool:
-    return (
-        os.name != "nt"
-        and hasattr(os, "O_DIRECTORY")
-        and os.open in os.supports_dir_fd
-        and os.mkdir in os.supports_dir_fd
-        and os.rename in os.supports_dir_fd
-        and os.stat in os.supports_dir_fd
-        and os.unlink in os.supports_dir_fd
-    )
+    return supports_confined_dirfd()
 
 
 def _open_parent_directory(
@@ -372,18 +411,20 @@ def _open_parent_directory(
 ) -> tuple[int, str]:
     """Open a target parent from the vault FD without following symlinks."""
 
+    if root_fd is None and not _supports_confined_dirfd():
+        # Callers gate on _supports_confined_dirfd(); this backstop turns a
+        # future unguarded call into a clean failure instead of AttributeError.
+        raise TransactionValidationError(
+            "UNSAFE_VAULT_PATH",
+            "directory-descriptor traversal is unavailable on this platform",
+        )
     normalized = (
         _normalize_vault_path(relative)
         if root_fd is not None
         else _safe_vault_path(vault_root, relative)[0]
     )
     parts = PurePosixPath(normalized).parts
-    flags = (
-        os.O_RDONLY
-        | os.O_DIRECTORY
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-    )
+    flags = directory_open_flags()
     if meta_fd is not None and parts[0] == ".vault-meta":
         descriptor = os.dup(meta_fd)
         walk_parts = parts[1:-1]
@@ -426,23 +467,40 @@ def _assert_no_existing_portable_alias(
         if root_fd is not None
         else _safe_vault_path(vault_root, relative)[0]
     )
-    flags = (
-        os.O_RDONLY
-        | os.O_DIRECTORY
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-    )
-    try:
-        descriptor = (
-            os.dup(root_fd) if root_fd is not None else os.open(vault_root, flags)
-        )
-    except FileNotFoundError:
-        return
+    flags = directory_open_flags()
+    handle: int | Path
+    if root_fd is not None:
+        handle = os.dup(root_fd)
+    elif _supports_confined_dirfd():
+        try:
+            handle = os.open(vault_root, flags)
+        except FileNotFoundError:
+            return
+    else:
+        # Degraded platforms (native Windows) walk by path.  _safe_vault_path
+        # above already rejected symlink/junction components lexically; each
+        # directory is re-checked immediately before enumeration below.
+        handle = canonical(vault_root)
     try:
         for index, part in enumerate(PurePosixPath(normalized).parts):
+            if isinstance(handle, Path):
+                try:
+                    assert_unaliased_directory(handle)
+                except (FileNotFoundError, NotADirectoryError):
+                    return
+                except OSError as exc:
+                    if exc.errno == errno.ELOOP:
+                        raise TransactionValidationError(
+                            "SYMLINK_WRITE_PATH",
+                            f"transaction paths may not traverse symlinks or junctions: {normalized}",
+                        ) from exc
+                    raise TransactionValidationError(
+                        "UNSAFE_VAULT_PATH",
+                        f"cannot enumerate siblings for {normalized}: {exc}",
+                    ) from exc
             try:
                 names: list[str] = []
-                with os.scandir(descriptor) as entries:
+                with os.scandir(handle) as entries:
                     for entry in entries:
                         names.append(entry.name)
                         if len(names) > MAX_PORTABLE_SIBLING_ENTRIES:
@@ -450,6 +508,13 @@ def _assert_no_existing_portable_alias(
                                 "VAULT_DIRECTORY_LIMIT",
                                 f"directory containing {normalized} exceeds the portable-name audit limit",
                             )
+            except FileNotFoundError:
+                if isinstance(handle, Path):
+                    return
+                raise TransactionValidationError(
+                    "UNSAFE_VAULT_PATH",
+                    f"cannot enumerate siblings for {normalized}: directory vanished",
+                ) from None
             except OSError as exc:
                 raise TransactionValidationError(
                     "UNSAFE_VAULT_PATH",
@@ -465,17 +530,21 @@ def _assert_no_existing_portable_alias(
                 )
             if part not in names or index == len(PurePosixPath(normalized).parts) - 1:
                 return
+            if isinstance(handle, Path):
+                handle = handle / part
+                continue
             try:
                 if index == 0 and part == ".vault-meta" and meta_fd is not None:
                     child = os.dup(meta_fd)
                 else:
-                    child = os.open(part, flags, dir_fd=descriptor)
+                    child = os.open(part, flags, dir_fd=handle)
             except (FileNotFoundError, NotADirectoryError):
                 return
-            os.close(descriptor)
-            descriptor = child
+            os.close(handle)
+            handle = child
     finally:
-        os.close(descriptor)
+        if isinstance(handle, int):
+            os.close(handle)
 
 
 def _safe_hash(
@@ -504,7 +573,7 @@ def _safe_hash(
                 "UNSAFE_VAULT_PATH",
                 f"transaction target is not a regular file: {normalized}",
             )
-        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        flags = read_open_flags()
         try:
             descriptor = os.open(path, flags)
         except OSError as exc:
@@ -523,9 +592,7 @@ def _safe_hash(
         except FileNotFoundError:
             return None
         try:
-            flags = (
-                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-            )
+            flags = read_open_flags()
             try:
                 descriptor = os.open(leaf, flags, dir_fd=parent_descriptor)
             except FileNotFoundError:
@@ -578,13 +645,7 @@ def _safe_file_state(
                     root_fd=root_fd,
                     meta_fd=meta_fd,
                 )
-                descriptor = os.open(
-                    leaf,
-                    os.O_RDONLY
-                    | getattr(os, "O_CLOEXEC", 0)
-                    | getattr(os, "O_NOFOLLOW", 0),
-                    dir_fd=parent_descriptor,
-                )
+                descriptor = os.open(leaf, read_open_flags(), dir_fd=parent_descriptor)
             except FileNotFoundError:
                 return None, None
             except OSError as exc:
@@ -601,12 +662,7 @@ def _safe_file_state(
                     "UNSAFE_VAULT_PATH",
                     f"transaction target is not regular: {normalized}",
                 )
-            descriptor = os.open(
-                path,
-                os.O_RDONLY
-                | getattr(os, "O_CLOEXEC", 0)
-                | getattr(os, "O_NOFOLLOW", 0),
-            )
+            descriptor = os.open(path, read_open_flags())
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode):
             raise TransactionValidationError(
@@ -632,12 +688,25 @@ def _safe_file_state(
                 "FILE_CHANGED_DURING_READ",
                 f"{normalized} changed while it was inspected",
             )
-        return digest.hexdigest(), after.st_mode & 0o777
+        return digest.hexdigest(), _portable_file_mode(after.st_mode)
     finally:
         if descriptor >= 0:
             os.close(descriptor)
         if parent_descriptor >= 0:
             os.close(parent_descriptor)
+
+
+def _portable_file_mode(st_mode: int) -> int:
+    """Permission bits for plan hashing, normalized on Windows.
+
+    The Windows CRT synthesizes 0o666/0o444 regardless of how the file was
+    created, which would make ``approval_sha256`` and the inspect ``modes``
+    output differ from every POSIX host for identical content.
+    """
+
+    if os.name == "nt":
+        return 0o644
+    return st_mode & 0o777
 
 
 def read_vault_regular(
@@ -673,13 +742,7 @@ def read_vault_regular(
                     root_fd=root_fd,
                     meta_fd=meta_fd,
                 )
-                descriptor = os.open(
-                    leaf,
-                    os.O_RDONLY
-                    | getattr(os, "O_CLOEXEC", 0)
-                    | getattr(os, "O_NOFOLLOW", 0),
-                    dir_fd=parent_descriptor,
-                )
+                descriptor = os.open(leaf, read_open_flags(), dir_fd=parent_descriptor)
             except FileNotFoundError:
                 if missing_ok:
                     return None
@@ -704,12 +767,7 @@ def read_vault_regular(
                     "UNSAFE_VAULT_PATH", f"vault file is not regular: {normalized}"
                 )
             try:
-                descriptor = os.open(
-                    path,
-                    os.O_RDONLY
-                    | getattr(os, "O_CLOEXEC", 0)
-                    | getattr(os, "O_NOFOLLOW", 0),
-                )
+                descriptor = os.open(path, read_open_flags())
             except OSError as exc:
                 raise TransactionValidationError(
                     "UNSAFE_VAULT_PATH", f"cannot open {normalized}: {exc}"
@@ -881,7 +939,7 @@ def _confined_vault_unlink(
         ) from exc
     descriptor = -1
     try:
-        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        flags = read_open_flags()
         try:
             descriptor = os.open(leaf, flags, dir_fd=parent_descriptor)
         except OSError as exc:
@@ -975,7 +1033,12 @@ def _identity_from_stat(value: os.stat_result) -> dict[str, Any]:
     }
 
 
-def _assert_no_portable_vault_leaf_alias_at(parent_fd: int, leaf: str) -> None:
+def _assert_no_portable_vault_leaf_alias_at(
+    parent: int | Path,
+    leaf: str,
+    *,
+    self_lstat: os.stat_result | None = None,
+) -> None:
     try:
         leaf_size = len(leaf.encode("utf-8"))
     except UnicodeEncodeError as exc:
@@ -996,7 +1059,7 @@ def _assert_no_portable_vault_leaf_alias_at(parent_fd: int, leaf: str) -> None:
         )
     count = 0
     try:
-        with os.scandir(parent_fd) as entries:
+        with os.scandir(parent) as entries:
             for entry in entries:
                 count += 1
                 if count > MAX_PORTABLE_SIBLING_ENTRIES:
@@ -1007,6 +1070,14 @@ def _assert_no_portable_vault_leaf_alias_at(parent_fd: int, leaf: str) -> None:
                 if entry.name != leaf and _portable_name_key(
                     entry.name
                 ) == _portable_name_key(leaf):
+                    if self_lstat is not None and _is_leaf_itself(
+                        parent, entry.name, self_lstat
+                    ):
+                        # On case-insensitive filesystems (APFS, NTFS) the
+                        # on-disk spelling of the vault itself can differ from
+                        # the spelling the caller typed; that is the same
+                        # object, not an alias.
+                        continue
                     raise TransactionValidationError(
                         "CASEFOLD_PATH_ALIAS",
                         f"vault parent already contains a portable alias for {leaf}: {entry.name}",
@@ -1017,23 +1088,102 @@ def _assert_no_portable_vault_leaf_alias_at(parent_fd: int, leaf: str) -> None:
         ) from exc
 
 
-def _assert_no_portable_vault_root_alias(vault_root: Path) -> None:
-    flags = (
-        os.O_RDONLY
-        | os.O_DIRECTORY
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-    )
+def _is_leaf_itself(parent: int | Path, name: str, self_lstat: os.stat_result) -> bool:
     try:
-        parent_fd = os.open(vault_root.parent, flags)
+        if isinstance(parent, int):
+            entry_stat = os.lstat(name, dir_fd=parent)
+        else:
+            entry_stat = os.lstat(parent / name)
+    except OSError:
+        return False
+    return is_same_object(entry_stat, self_lstat)
+
+
+def _assert_no_portable_vault_root_alias(vault_root: Path) -> None:
+    try:
+        self_lstat: os.stat_result | None = os.lstat(vault_root)
+    except OSError:
+        self_lstat = None
+    if _supports_confined_dirfd():
+        try:
+            parent_fd = os.open(vault_root.parent, directory_open_flags())
+        except OSError as exc:
+            raise TransactionValidationError(
+                "UNSAFE_VAULT_IDENTITY", f"cannot pin vault parent: {exc}"
+            ) from exc
+        try:
+            _assert_no_portable_vault_leaf_alias_at(
+                parent_fd, vault_root.name, self_lstat=self_lstat
+            )
+        finally:
+            os.close(parent_fd)
+        return
+    parent = canonical(vault_root).parent
+    try:
+        assert_unaliased_directory(parent)
     except OSError as exc:
         raise TransactionValidationError(
             "UNSAFE_VAULT_IDENTITY", f"cannot pin vault parent: {exc}"
         ) from exc
+    _assert_no_portable_vault_leaf_alias_at(
+        parent, vault_root.name, self_lstat=self_lstat
+    )
+
+
+def _path_mode_identity(vault: Path) -> dict[str, Any]:
+    """Identity for degraded (non-dirfd) platforms, from lstat alone.
+
+    Never opens a directory: the Windows CRT refuses ``os.open`` on
+    directories regardless of flags.
+    """
+
     try:
-        _assert_no_portable_vault_leaf_alias_at(parent_fd, vault_root.name)
-    finally:
-        os.close(parent_fd)
+        value = assert_unaliased_directory(vault)
+    except FileNotFoundError:
+        parent = vault.parent
+        try:
+            parent_stat = assert_unaliased_directory(parent)
+        except OSError as exc:
+            raise TransactionValidationError(
+                "UNSAFE_VAULT_IDENTITY", f"cannot identify vault directory: {exc}"
+            ) from exc
+        _require_stable_identity(parent_stat, parent)
+        _assert_no_portable_vault_leaf_alias_at(parent, vault.name)
+        try:
+            os.lstat(vault)
+        except FileNotFoundError:
+            return {
+                "state": "absent",
+                "parent_device": parent_stat.st_dev,
+                "parent_inode": parent_stat.st_ino,
+                "leaf": vault.name,
+            }
+        except OSError as exc:
+            raise TransactionValidationError(
+                "UNSAFE_VAULT_IDENTITY", f"cannot identify vault directory: {exc}"
+            ) from exc
+        raise TransactionValidationError(
+            "VAULT_IDENTITY_CHANGED", "vault appeared while its identity was read"
+        )
+    except OSError as exc:
+        if exc.errno == errno.ENOTDIR:
+            raise TransactionValidationError(
+                "VAULT_NOT_DIRECTORY", f"vault is not a directory: {vault}"
+            ) from exc
+        raise TransactionValidationError(
+            "UNSAFE_VAULT_IDENTITY", f"cannot identify vault directory: {exc}"
+        ) from exc
+    _require_stable_identity(value, vault)
+    return _identity_from_stat(value)
+
+
+def _require_stable_identity(value: os.stat_result, path: Path) -> None:
+    if value.st_ino == 0:
+        raise TransactionValidationError(
+            "UNSAFE_VAULT_IDENTITY",
+            f"filesystem does not expose stable file identity for {path} "
+            "(FAT/exFAT/some network shares); use an NTFS volume or WSL",
+        )
 
 
 def _vault_object_identity(
@@ -1044,6 +1194,8 @@ def _vault_object_identity(
     vault = canonical(vault_root)
     if root_fd is not None:
         return _identity_from_stat(os.fstat(root_fd))
+    if not _supports_confined_dirfd():
+        return _path_mode_identity(vault)
     try:
         descriptor = os.open(
             vault,
@@ -1209,6 +1361,30 @@ def _require_lock_dirfd_support() -> None:
             errno.ENOTSUP,
             "directory-descriptor lock confinement requires WSL/Linux or supported macOS",
         )
+
+
+_UNSUPPORTED_PLATFORM_MESSAGE = (
+    "vault writes require directory-descriptor confinement (WSL/Linux or "
+    "supported macOS); on native Windows run this command inside WSL — "
+    "read-only inspection and dry-runs work natively"
+)
+
+
+def _require_write_platform() -> None:
+    """Refuse vault mutation on hosts without dirfd confinement, cleanly.
+
+    Called before any side effect (directory creation, backup staging) so a
+    refused ``--apply`` leaves nothing behind.
+    """
+
+    try:
+        _require_lock_dirfd_support()
+    except OSError as exc:
+        if exc.errno == errno.ENOTSUP:
+            raise TransactionValidationError(
+                "UNSUPPORTED_PLATFORM", _UNSUPPORTED_PLATFORM_MESSAGE
+            ) from exc
+        raise
 
 
 def _open_lock_parent_fd(
@@ -1577,7 +1753,9 @@ class MutationLock:
         try:
             assert self._root_parent_fd is not None
             _assert_no_portable_vault_leaf_alias_at(
-                self._root_parent_fd, self._root_name
+                self._root_parent_fd,
+                self._root_name,
+                self_lstat=os.fstat(self._root_fd),
             )
         except TransactionValidationError as exc:
             raise TransactionError(
@@ -1609,6 +1787,10 @@ class MutationLock:
         try:
             root_fd = _open_lock_root_fd(self.vault_root)
         except OSError as exc:
+            if exc.errno == errno.ENOTSUP:
+                raise TransactionValidationError(
+                    "UNSUPPORTED_PLATFORM", _UNSUPPORTED_PLATFORM_MESSAGE
+                ) from exc
             if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
                 raise TransactionValidationError(
                     "SYMLINK_WRITE_PATH",
@@ -1639,7 +1821,9 @@ class MutationLock:
             )
         try:
             _assert_no_portable_vault_leaf_alias_at(
-                self._root_parent_fd, self._root_name
+                self._root_parent_fd,
+                self._root_name,
+                self_lstat=os.fstat(root_fd),
             )
         except TransactionValidationError:
             self._close_descriptors()
@@ -2377,10 +2561,7 @@ def _load_bundle(
             raise ValueError(
                 f"bundle exceeds the {MAX_TRANSACTION_BUNDLE_BYTES}-byte limit"
             )
-        descriptor = os.open(
-            path,
-            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
-        )
+        descriptor = os.open(path, read_open_flags())
         opened = os.fstat(descriptor)
         if (
             not stat.S_ISREG(opened.st_mode)
@@ -3594,6 +3775,15 @@ def _validated_recovery_writes(
         if (
             unicodedata.normalize("NFC", supplied_path) != supplied_path
             or len(supplied_path.encode("utf-8")) > MAX_TRANSACTION_PATH_BYTES
+            or any(
+                character in _UNPORTABLE_PATH_CHARACTERS
+                for character in supplied_path
+            )
+            or any(
+                component.endswith((".", " "))
+                or component.split(".", 1)[0].upper() in _RESERVED_DEVICE_NAMES
+                for component in parsed_path.parts
+            )
         ):
             raise TransactionRecoveryError(
                 "CORRUPT_JOURNAL",
@@ -4074,15 +4264,9 @@ def inspect_bundle(
             "INVALID_OPERATION_TYPE", f"unsupported operation_type: {operation_type!r}"
         )
     root_fd: int | None = None
-    if vault.exists():
-        flags = (
-            os.O_RDONLY
-            | os.O_DIRECTORY
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NOFOLLOW", 0)
-        )
+    if vault.exists() and _supports_confined_dirfd():
         try:
-            root_fd = os.open(vault, flags)
+            root_fd = os.open(vault, directory_open_flags())
         except OSError as exc:
             raise TransactionValidationError(
                 "UNSAFE_VAULT_IDENTITY", f"cannot pin vault directory: {exc}"
@@ -4101,7 +4285,8 @@ def inspect_bundle(
                 Path(directory),
                 root_fd=root_fd,
             )
-        if root_fd is not None and _vault_object_identity(vault) != vault_identity:
+        recheck_identity = root_fd is not None or not _supports_confined_dirfd()
+        if recheck_identity and _vault_object_identity(vault) != vault_identity:
             raise TransactionValidationError(
                 "VAULT_IDENTITY_CHANGED", "vault changed while the plan was inspected"
             )
@@ -4138,6 +4323,7 @@ def apply_bundle(
     reviewed_vault_identity: Mapping[str, Any] | None = None,
     expected_current_vault_identity: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    _require_write_platform()
     vault = canonical(vault_root)
     if not vault.is_dir():
         raise TransactionValidationError(

@@ -36,6 +36,7 @@ from .transaction import (
     BUNDLE_SCHEMA,
     TransactionValidationError,
     _LockIdentityChanged,
+    _UNSUPPORTED_PLATFORM_MESSAGE,
     _lock_entry_matches,
     _open_lock_directory_at,
     _open_lock_parent_from_root_fd,
@@ -205,6 +206,10 @@ def _safe_runtime_dir(vault_root: Path) -> Path:
             create=True,
         )
     except OSError as exc:
+        if exc.errno == errno.ENOTSUP:
+            raise CaptureValidationError(
+                "UNSUPPORTED_PLATFORM", _UNSUPPORTED_PLATFORM_MESSAGE
+            ) from exc
         if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
             raise CaptureValidationError(
                 "RUNTIME_SYMLINK",
@@ -1494,6 +1499,10 @@ class CaptureQueueLock:
         try:
             root_fd = _open_lock_root_fd(self.vault_root)
         except OSError as exc:
+            if exc.errno == errno.ENOTSUP:
+                raise CaptureValidationError(
+                    "UNSUPPORTED_PLATFORM", _UNSUPPORTED_PLATFORM_MESSAGE
+                ) from exc
             raise CaptureError(
                 "QUEUE_LOCK_FAILED", f"cannot pin capture vault root: {exc}"
             ) from exc
