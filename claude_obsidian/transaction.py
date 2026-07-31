@@ -3277,6 +3277,9 @@ def _prepare_writes(
     # Lexical portability pre-pass before any filesystem probe so unportable
     # plans are rejected with the same code on every platform (a Windows lstat
     # of e.g. "a:b.md" would otherwise fail first with a different error).
+    # expected_hashes keys are deliberately exempt: probe-only keys are read
+    # preconditions, and a legacy vault must stay able to pin the state of a
+    # pre-existing file whose historical name violates the portable rules.
     for raw in raw_writes:
         if isinstance(raw, dict) and isinstance(raw.get("path"), str):
             _assert_portable_write_path(raw["path"])

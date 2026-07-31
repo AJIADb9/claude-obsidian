@@ -24,10 +24,11 @@ implementation record for older releases.
   (previously `read_text` newline normalization made every chunk look stale).
 - Under a held mutation lock, a vault whose on-disk name differs only by case
   from the spelling used on the command line is no longer misreported as its
-  own portable alias on case-insensitive filesystems (APFS, NTFS); the
-  descriptor-pinned vault object is recognized as itself. Inspect-time
-  auditing keeps the stricter shipped behavior, since an absent init root on
-  a case-insensitive volume cannot distinguish itself from an alien sibling.
+  own portable alias on case-insensitive filesystems (APFS; the lock layer
+  never runs on native Windows); the descriptor-pinned vault object is
+  recognized as itself. Inspect-time auditing keeps the stricter shipped
+  behavior, since an absent init root on a case-insensitive volume cannot
+  distinguish itself from an alien sibling.
 
 ### Changed
 
