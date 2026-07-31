@@ -378,7 +378,13 @@ def load_chunk(chunk_rel_path):
     if not isinstance(chunk_rel_path, str) or not chunk_rel_path:
         return None
     rel = Path(chunk_rel_path)
-    if rel.is_absolute():
+    # On Windows "/x" and "C:x" are not "absolute" under pathlib but still
+    # escape a joined root.
+    if (
+        rel.is_absolute()
+        or chunk_rel_path.startswith(("/", "\\"))
+        or re.match(r"^[A-Za-z]:", chunk_rel_path)
+    ):
         return None
     p = (VAULT_ROOT / rel).resolve()
     if not p.is_relative_to((META_DIR / "chunks").resolve()):

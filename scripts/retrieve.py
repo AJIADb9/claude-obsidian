@@ -212,8 +212,11 @@ def chunk_is_current(hit, chunk, page_path, page_hash_cache):
     cache_key = str(page_path)
     if cache_key not in page_hash_cache:
         try:
+            # read_bytes keeps CRLF content byte-identical with the hash the
+            # chunker computed; read_text would normalize newlines and drop
+            # every candidate as stale on CRLF vaults.
             page_hash_cache[cache_key] = sha256(
-                page_path.read_text(encoding="utf-8", errors="replace")
+                page_path.read_bytes().decode("utf-8", errors="replace")
             )
         except OSError:
             page_hash_cache[cache_key] = None

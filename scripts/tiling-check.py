@@ -237,7 +237,7 @@ def load_cache(current_model: str) -> dict:
     if not CACHE_PATH.exists():
         return {"version": 1, "model": current_model, "embeddings": {}}
     try:
-        with CACHE_PATH.open() as f:
+        with CACHE_PATH.open(encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError) as exc:
         log(f"ERR: cache read failed: {exc}")
@@ -287,7 +287,7 @@ def load_thresholds() -> dict:
             "bands": {"error": 0.90, "review": 0.80},
             "calibrated": False, "calibration_pairs_labeled": 0,
         }
-    with THRESHOLDS_PATH.open() as f:
+    with THRESHOLDS_PATH.open(encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -500,7 +500,7 @@ def cmd_peek(ollama_url: str, model: str) -> int:
     diag["cache_model"] = None
     if diag["cache_present"]:
         try:
-            with CACHE_PATH.open() as f:
+            with CACHE_PATH.open(encoding="utf-8") as f:
                 c = json.load(f)
             diag["cache_readable"] = (c.get("version") == 1
                                       and isinstance(c.get("embeddings"), dict))
@@ -513,7 +513,7 @@ def cmd_peek(ollama_url: str, model: str) -> int:
     diag["thresholds_readable"] = False
     if diag["thresholds_present"]:
         try:
-            with THRESHOLDS_PATH.open() as f:
+            with THRESHOLDS_PATH.open(encoding="utf-8") as f:
                 t = json.load(f)
             diag["thresholds_readable"] = True
             diag["thresholds_calibrated"] = bool(t.get("calibrated", False))
