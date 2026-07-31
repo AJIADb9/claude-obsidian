@@ -7,8 +7,44 @@ implementation record for older releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Native Windows no longer crashes with `AttributeError: os.O_DIRECTORY` on
+  every vault command. Read-only inspection and dry-runs (`transaction
+  inspect`, `migrate`/`init`/`adopt`/`capture` previews) now work natively
+  with real equivalent safety checks: path-based casefold-alias auditing,
+  lstat-based vault identity, and symlink/junction rejection.
+- File reads in the transaction core now force binary mode (`O_BINARY`), so
+  CRLF content is hashed byte-exactly on Windows instead of producing false
+  `CONTENT_HASH_MISMATCH`/`EXPECTED_HASH_MISMATCH` failures.
+- CLI output is always UTF-8, fixing `UnicodeEncodeError` crashes when
+  redirecting output containing non-ASCII titles on Windows (cp1252 consoles).
+- Retrieval no longer returns zero results for vaults with CRLF line endings:
+  the chunker, index, and retriever now hash page bodies byte-identically
+  (previously `read_text` newline normalization made every chunk look stale).
+- Selecting a vault whose on-disk name differs only by case or Unicode
+  normalization from the spelling used on the command line no longer raises a
+  spurious `CASEFOLD_PATH_ALIAS` on case-insensitive filesystems (APFS, NTFS).
+
 ### Changed
 
+- Vault mutation on hosts without directory-descriptor confinement (native
+  Windows) is refused before any side effect with a new
+  `UNSUPPORTED_PLATFORM` validation error (exit 2, previously a generic
+  `LOCK_FAILED` exit 1 or a traceback), and `init --apply` no longer creates
+  an abandoned empty vault directory on refused platforms.
+- Transaction write paths are now validated against portable-filesystem rules
+  on every platform: Windows-reserved device names (`CON`, `NUL`, ...),
+  `:<>|?*"` characters, and trailing dots/spaces are rejected with
+  `UNPORTABLE_WRITE_PATH` so an approved plan means the same thing everywhere.
+- Degraded-mode path walks now reject Windows directory junctions and mount
+  points in addition to symlinks.
+- File permission bits feeding plan hashes are normalized to `0o644` on
+  Windows, keeping inspect output deterministic.
+- Added a `.gitattributes` that disables line-ending translation so checkouts
+  hash identically on every platform.
+- CI gained a `windows-smoke` job exercising the portable Python surface and
+  the new Windows compatibility suite on `windows-latest`.
 - Replaced the animated README hero with the selected static PNG cover while
   preserving the warm orbital style.
 
