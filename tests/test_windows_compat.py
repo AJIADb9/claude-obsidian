@@ -194,17 +194,21 @@ def test_no_self_alias_false_positive() -> None:
             assert inspect_bundle(parent / "VAULT", operation)["valid"] is True
         else:
             # Unit-level equivalent of the case-insensitive-volume scenario:
-            # scandir shows "vault" while the caller spelled "VAULT"; with the
-            # vault's own lstat supplied and matching, the entry is recognized
-            # as the vault itself, not an alias.  (must not raise)
-            with mock.patch.object(
-                paths_module,
-                "is_same_object",
-                lambda left, right: True,
-            ):
+            # scandir shows "vault" while the caller spelled "VAULT".  Passing
+            # the actual on-disk entry's lstat as the vault's own identity makes
+            # _is_leaf_itself recognize the entry as the vault, not an alias.
+            # (must not raise; without self_lstat it must still raise)
+            transaction_module._assert_no_portable_vault_leaf_alias_at(
+                parent, "VAULT", self_lstat=os.lstat(vault)
+            )
+            try:
                 transaction_module._assert_no_portable_vault_leaf_alias_at(
-                    parent, "VAULT", self_lstat=os.lstat(vault)
+                    parent, "VAULT", self_lstat=None
                 )
+            except TransactionValidationError as exc:
+                assert exc.code == "CASEFOLD_PATH_ALIAS"
+            else:
+                raise AssertionError("alias must be flagged without self identity")
 
 
 def test_sibling_limit_enforced_without_dirfd() -> None:
@@ -348,6 +352,31 @@ def test_cli_surfaces_platform_error_without_traceback() -> None:
         assert "Traceback" not in err.getvalue()
 
 
+def test_init_apply_refused_before_mkdir() -> None:
+    # A refused init must not create-and-abandon the destination directory
+    # (failed Init roots are deliberately never path-deleted).
+    with tempfile.TemporaryDirectory() as td, windows_mode():
+        destination = Path(td) / "new-vault"
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = cli_module.main(
+                [
+                    "init",
+                    str(destination),
+                    "--generated-at",
+                    "2026-07-31T00:00:00Z",
+                    "--operation-id",
+                    "win-init",
+                    "--apply",
+                    "--approved-plan-sha256",
+                    "0" * 64,
+                ]
+            )
+        assert rc == 2, err.getvalue()
+        assert err.getvalue().startswith("ERR UNSUPPORTED_PLATFORM:")
+        assert not destination.exists(), "refused init must not create the root"
+
+
 def test_identity_change_detected_in_path_mode() -> None:
     with tempfile.TemporaryDirectory() as td, windows_mode():
         base = Path(td)
@@ -464,6 +493,7 @@ def main() -> None:
     test_zero_inode_identity_fails_closed()
     test_apply_refused_before_any_side_effect()
     test_cli_surfaces_platform_error_without_traceback()
+    test_init_apply_refused_before_mkdir()
     test_identity_change_detected_in_path_mode()
     test_unportable_write_paths_rejected_on_every_platform()
     test_native_windows_bundle_and_workspace_config_load()

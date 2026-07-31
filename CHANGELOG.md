@@ -33,10 +33,12 @@ implementation record for older releases.
   `UNSUPPORTED_PLATFORM` validation error (exit 2, previously a generic
   `LOCK_FAILED` exit 1 or a traceback), and `init --apply` no longer creates
   an abandoned empty vault directory on refused platforms.
-- Transaction write paths are now validated against portable-filesystem rules
-  on every platform: Windows-reserved device names (`CON`, `NUL`, ...),
-  `:<>|?*"` characters, and trailing dots/spaces are rejected with
-  `UNPORTABLE_WRITE_PATH` so an approved plan means the same thing everywhere.
+- New transaction write destinations are validated against
+  portable-filesystem rules on every platform: Windows-reserved device names
+  (`CON`, `NUL`, ...), `:<>|?*"` characters, and trailing dots/spaces are
+  rejected with `UNPORTABLE_WRITE_PATH` so an approved plan means the same
+  thing everywhere. Reads, retrieval indexing, and journal recovery of
+  pre-existing files with such names are intentionally unaffected.
 - Degraded-mode path walks now reject Windows directory junctions and mount
   points in addition to symlinks.
 - File permission bits feeding plan hashes are normalized to `0o644` on

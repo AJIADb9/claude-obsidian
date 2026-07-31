@@ -698,6 +698,17 @@ def test_chunk_parent_swap_never_redirects_atomic_publication() -> None:
             ) = original_paths
 
 
+def test_read_page_preserves_crlf_bytes() -> None:
+    # Regression: read_page previously used read_text, which normalizes CRLF,
+    # so the chunker's page_body_hash diverged from the byte-exact hash used
+    # under the writer lock and by the retriever.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        page = Path(tmpdir) / "c.md"
+        page.write_bytes(b"line one\r\nline two\r\n")
+        text = cp.read_page(page)
+        assert "\r\n" in text, "read_page must not normalize line endings"
+
+
 def main():
     print("=== test_contextual_prefix.py ===")
     test_below_floor_returns_none()
@@ -717,6 +728,7 @@ def main():
     test_prefix_generation_refuses_shared_vault_writer_lock()
     test_pinned_contextual_write_survives_root_replacement()
     test_chunk_parent_swap_never_redirects_atomic_publication()
+    test_read_page_preserves_crlf_bytes()
     print("\nAll contextual-prefix tests passed.")
 
 

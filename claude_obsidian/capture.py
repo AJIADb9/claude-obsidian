@@ -36,6 +36,7 @@ from .transaction import (
     BUNDLE_SCHEMA,
     TransactionValidationError,
     _LockIdentityChanged,
+    _PlatformConfinementUnavailable,
     _UNSUPPORTED_PLATFORM_MESSAGE,
     _lock_entry_matches,
     _open_lock_directory_at,
@@ -206,7 +207,7 @@ def _safe_runtime_dir(vault_root: Path) -> Path:
             create=True,
         )
     except OSError as exc:
-        if exc.errno == errno.ENOTSUP:
+        if isinstance(exc, _PlatformConfinementUnavailable):
             raise CaptureValidationError(
                 "UNSUPPORTED_PLATFORM", _UNSUPPORTED_PLATFORM_MESSAGE
             ) from exc
@@ -1499,7 +1500,7 @@ class CaptureQueueLock:
         try:
             root_fd = _open_lock_root_fd(self.vault_root)
         except OSError as exc:
-            if exc.errno == errno.ENOTSUP:
+            if isinstance(exc, _PlatformConfinementUnavailable):
                 raise CaptureValidationError(
                     "UNSUPPORTED_PLATFORM", _UNSUPPORTED_PLATFORM_MESSAGE
                 ) from exc

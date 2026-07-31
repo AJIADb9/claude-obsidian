@@ -848,6 +848,10 @@ def collect_pages(target):
             pages.append(path)
         return sorted(pages)
     p = Path(target)
+    # Deliberately no rooted-/drive-prefix rejection here (unlike the chunk
+    # validators in rerank.py/bm25-index.py): this is CLI target selection, and
+    # process_selection() enforces containment via resolve()+is_relative_to
+    # against WIKI_DIR plus _safe_vault_path before any chunk is touched.
     if not p.is_absolute():
         p = VAULT_ROOT / p
     return [p]

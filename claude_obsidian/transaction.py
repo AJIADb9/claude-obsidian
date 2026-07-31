@@ -262,11 +262,6 @@ def _normalize_vault_path(value: Any) -> str:
         raise TransactionValidationError(
             "INVALID_WRITE_PATH", "path contains a control character or backslash"
         )
-    if any(character in _UNPORTABLE_PATH_CHARACTERS for character in value):
-        raise TransactionValidationError(
-            "UNPORTABLE_WRITE_PATH",
-            f"path contains a character that is unsafe on portable filesystems: {value}",
-        )
     parsed = PurePosixPath(value)
     if parsed.is_absolute() or value in {"", "."} or ".." in parsed.parts:
         raise TransactionValidationError(
@@ -287,7 +282,28 @@ def _normalize_vault_path(value: Any) -> str:
             "WRITE_PATH_TOO_LONG",
             f"path exceeds the {MAX_TRANSACTION_PATH_BYTES}-byte portability limit: {value}",
         )
-    for component in parsed.parts:
+    return normalized
+
+
+def _assert_portable_write_path(value: str) -> None:
+    """Reject NEW write destinations that portable filesystems cannot host.
+
+    Applies only where a plan proposes writes — never to reads of existing
+    vault content, so pre-existing files with historically accepted names stay
+    readable, indexable, and recoverable.
+    """
+
+    if any(character in _UNPORTABLE_PATH_CHARACTERS for character in value):
+        # ``:`` names an NTFS alternate data stream, invisible to directory
+        # enumeration; the rest are Win32-invalid filename characters.
+        raise TransactionValidationError(
+            "UNPORTABLE_WRITE_PATH",
+            f"path contains a character that is unsafe on portable filesystems: {value}",
+        )
+    for component in value.split("/"):
+        if component in {"", ".", ".."}:
+            # Structural defects; _normalize_vault_path owns their error codes.
+            continue
         if component.endswith((".", " ")):
             # Win32 strips trailing dots/spaces at the syscall boundary, so such
             # a name silently aliases its stripped form — an alias class the
@@ -301,7 +317,6 @@ def _normalize_vault_path(value: Any) -> str:
                 "UNPORTABLE_WRITE_PATH",
                 f"path component is a reserved device name: {value}",
             )
-    return normalized
 
 
 def _safe_vault_path(vault_root: Path, value: Any) -> tuple[str, Path]:
@@ -1089,6 +1104,15 @@ def _assert_no_portable_vault_leaf_alias_at(
 
 
 def _is_leaf_itself(parent: int | Path, name: str, self_lstat: os.stat_result) -> bool:
+    """True when a differently spelled sibling entry IS the vault object.
+
+    Deliberate tolerance: two directory entries naming the same object (a
+    case-insensitive volume's single entry, or a same-parent bind mount) are
+    one vault, so treating them as a CASEFOLD_PATH_ALIAS would reject the
+    vault itself.  Distinct objects — including a junction pointing at the
+    vault, whose reparse point lstats with its own identity — still flag.
+    """
+
     try:
         if isinstance(parent, int):
             entry_stat = os.lstat(name, dir_fd=parent)
@@ -1357,7 +1381,7 @@ def _require_lock_dirfd_support() -> None:
         or any(function not in os.supports_dir_fd for function in required)
         or os.stat not in os.supports_follow_symlinks
     ):
-        raise OSError(
+        raise _PlatformConfinementUnavailable(
             errno.ENOTSUP,
             "directory-descriptor lock confinement requires WSL/Linux or supported macOS",
         )
@@ -1370,6 +1394,16 @@ _UNSUPPORTED_PLATFORM_MESSAGE = (
 )
 
 
+class _PlatformConfinementUnavailable(OSError):
+    """ENOTSUP raised by the platform capability gate itself.
+
+    Distinct type so callers can map exactly this condition to
+    UNSUPPORTED_PLATFORM without also swallowing a genuine EOPNOTSUPP that a
+    filesystem returns on an otherwise supported host (Linux aliases the two
+    errno values).
+    """
+
+
 def _require_write_platform() -> None:
     """Refuse vault mutation on hosts without dirfd confinement, cleanly.
 
@@ -1379,12 +1413,10 @@ def _require_write_platform() -> None:
 
     try:
         _require_lock_dirfd_support()
-    except OSError as exc:
-        if exc.errno == errno.ENOTSUP:
-            raise TransactionValidationError(
-                "UNSUPPORTED_PLATFORM", _UNSUPPORTED_PLATFORM_MESSAGE
-            ) from exc
-        raise
+    except _PlatformConfinementUnavailable as exc:
+        raise TransactionValidationError(
+            "UNSUPPORTED_PLATFORM", _UNSUPPORTED_PLATFORM_MESSAGE
+        ) from exc
 
 
 def _open_lock_parent_fd(
@@ -1787,7 +1819,7 @@ class MutationLock:
         try:
             root_fd = _open_lock_root_fd(self.vault_root)
         except OSError as exc:
-            if exc.errno == errno.ENOTSUP:
+            if isinstance(exc, _PlatformConfinementUnavailable):
                 raise TransactionValidationError(
                     "UNSUPPORTED_PLATFORM", _UNSUPPORTED_PLATFORM_MESSAGE
                 ) from exc
@@ -2662,7 +2694,7 @@ def _raw_write_bytes(raw: Mapping[str, Any], bundle_dir: Path) -> bytes:
             "TRANSACTION_FILE_TOO_LARGE",
             f"content file exceeds {MAX_TRANSACTION_FILE_BYTES} bytes: {source}",
         )
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    flags = read_open_flags()
     descriptor = -1
     try:
         descriptor = os.open(source, flags)
@@ -3244,6 +3276,12 @@ def _prepare_writes(
             "TRANSACTION_WRITE_LIMIT",
             f"bundle exceeds the {MAX_TRANSACTION_WRITES}-write recovery limit",
         )
+    # Lexical portability pre-pass before any filesystem probe so unportable
+    # plans are rejected with the same code on every platform (a Windows lstat
+    # of e.g. "a:b.md" would otherwise fail first with a different error).
+    for raw in raw_writes:
+        if isinstance(raw, dict) and isinstance(raw.get("path"), str):
+            _assert_portable_write_path(raw["path"])
     expected = bundle.get("expected_hashes")
     if not isinstance(expected, dict):
         raise TransactionValidationError(
@@ -3775,16 +3813,10 @@ def _validated_recovery_writes(
         if (
             unicodedata.normalize("NFC", supplied_path) != supplied_path
             or len(supplied_path.encode("utf-8")) > MAX_TRANSACTION_PATH_BYTES
-            or any(
-                character in _UNPORTABLE_PATH_CHARACTERS
-                for character in supplied_path
-            )
-            or any(
-                component.endswith((".", " "))
-                or component.split(".", 1)[0].upper() in _RESERVED_DEVICE_NAMES
-                for component in parsed_path.parts
-            )
         ):
+            # Deliberately NOT mirroring _assert_portable_write_path here:
+            # recovery must be able to roll back a journal written by a release
+            # that still accepted such paths.
             raise TransactionRecoveryError(
                 "CORRUPT_JOURNAL",
                 f"journal write {index} has a non-portable path",

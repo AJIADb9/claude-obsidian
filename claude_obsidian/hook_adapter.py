@@ -16,6 +16,7 @@ from .paths import (
     VaultSelectionError,
     assert_within,
     canonical,
+    is_name_surrogate,
     is_relative_to,
     resolve_vault_root,
 )
@@ -88,7 +89,7 @@ def _bounded_regular_bytes(root: Path, path: Path, limit: int) -> bytes | None:
                 metadata = cursor.lstat()
             except OSError:
                 return None
-            if stat.S_ISLNK(metadata.st_mode):
+            if is_name_surrogate(metadata):
                 return None
         try:
             descriptor = os.open(path, file_flags)

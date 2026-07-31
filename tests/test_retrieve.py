@@ -1078,6 +1078,34 @@ def test_chunk_currency_rejects_hashless_or_malformed_legacy_records():
             )
 
 
+def test_chunk_currency_accepts_crlf_pages():
+    # Regression: chunk_is_current hashed pages via read_text (CRLF-normalizing),
+    # so vaults with CRLF line endings dropped every candidate as stale and
+    # retrieval returned zero results.  The hash must match the chunker's
+    # byte-exact reading of the same page.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        page = Path(tmpdir) / "wiki/fake/c-000001.md"
+        page.parent.mkdir(parents=True)
+        page.write_bytes(b"crlf line one\r\ncrlf line two\r\n")
+        page_text = page.read_bytes().decode("utf-8", errors="replace")
+        chunk = {
+            "page_address": "c-000001",
+            "chunk_index": 0,
+            "raw_text": page_text,
+            "body_hash": sha256_text(page_text),
+            "page_body_hash": sha256_text(page_text),
+        }
+        hit = {
+            "chunk_id": "c-000001:0",
+            "body_hash": chunk["body_hash"],
+            "page_body_hash": chunk["page_body_hash"],
+        }
+        assert_true(
+            "CRLF page chunk is current",
+            retrieve.chunk_is_current(hit, chunk, page, {}),
+        )
+
+
 # ─── M8 closure: --explain and --no-rerank flag coverage ─────────────────────
 def test_explain_flag_adds_diagnostics_block():
     """v1.7.2 / closes audit M8: --explain must include an 'explain' diagnostics block."""
@@ -1277,6 +1305,7 @@ def main():
     test_dedupe_happens_before_final_top_k()
     test_retrieve_skips_page_deleted_after_index_build()
     test_chunk_currency_rejects_hashless_or_malformed_legacy_records()
+    test_chunk_currency_accepts_crlf_pages()
     test_explain_flag_adds_diagnostics_block()
     test_no_rerank_flag_strategy_bm25_only()
     print("\nAll retrieve tests passed.")
