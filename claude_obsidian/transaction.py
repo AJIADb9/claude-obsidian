@@ -1388,7 +1388,8 @@ def _require_lock_dirfd_support() -> None:
 _UNSUPPORTED_PLATFORM_MESSAGE = (
     "vault writes require directory-descriptor confinement (WSL/Linux or "
     "supported macOS); on native Windows run this command inside WSL — "
-    "read-only inspection and dry-runs work natively"
+    "read-only inspection and dry-runs work natively; if WSL itself "
+    "misbehaves, see docs/windows-wsl.md"
 )
 
 

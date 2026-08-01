@@ -76,7 +76,8 @@ require WSL/Linux or supported macOS; native Windows and Git Bash are not
 supported mutation hosts and are refused with `UNSUPPORTED_PLATFORM` before
 any side effect. Read-only inspection and dry-runs run natively on Windows
 using point-in-time lstat validation (symlink and junction rejection) instead
-of descriptor pinning.
+of descriptor pinning. Platform specifics and WSL troubleshooting live in the
+[Windows and WSL guide](windows-wsl.md).
 
 Raw source bytes can be supplied through hash-checked binary `content_file`
 writes, but their destination mode is create-only. Address allocation, page

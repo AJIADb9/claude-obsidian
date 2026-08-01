@@ -314,6 +314,7 @@ def test_apply_refused_before_any_side_effect() -> None:
             "UNSUPPORTED_PLATFORM", apply_bundle, vault, operation
         )
         assert "WSL" in str(exc)
+        assert "docs/windows-wsl.md" in str(exc), "refusal must point at the guide"
         assert not (vault / ".vault-meta").exists(), "refusal must be side-effect free"
         assert not (vault / "wiki" / "A.md").exists()
 
