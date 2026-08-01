@@ -15,6 +15,8 @@ for development, but a normal user vault should be a separate directory.
 - Obsidian when you want its visual editor
 - Bash for installer and optional legacy-extension scripts
 - Git only for source development, release builds, or explicit checkpoints
+- On Windows: WSL for vault writes; native Windows supports read-only
+  inspection and dry-runs — see the [Windows and WSL guide](windows-wsl.md)
 
 ## Claude Code marketplace
 
@@ -258,5 +260,8 @@ User notes, sources, ledgers, and Obsidian settings remain untouched.
 | Transaction conflict / exit 75 | Another operation is active or a target changed; reread, rebuild, and inspect a new bundle. |
 | Obsidian CLI is unavailable | Use filesystem reads; start/update Obsidian before retrying CLI transport. |
 | Capture adapter is not implemented | Inspect `capture adapters`; configure a separate runner only with explicit consent. |
+| Writes refused with `UNSUPPORTED_PLATFORM` on Windows | Vault mutation requires WSL; see the [Windows and WSL guide](windows-wsl.md). |
+| WSL installed but `wsl --status` hangs | Virtualization conflict class; work through the checklist in the [Windows and WSL guide](windows-wsl.md#wsl-troubleshooting). |
+| Native dry-run approval fails in WSL with `PLAN_CHANGED` | Approval hashes bind the reviewing environment; redo the dry-run inside WSL ([details](windows-wsl.md#wsl-troubleshooting)). |
 
 Run `make test` in the product repository when developing or packaging changes.

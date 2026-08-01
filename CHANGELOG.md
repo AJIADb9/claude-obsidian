@@ -5,6 +5,21 @@ Notable changes to claude-obsidian are recorded here using
 [Semantic Versioning](https://semver.org/). Git history retains the detailed
 implementation record for older releases.
 
+## [Unreleased]
+
+### Added
+
+- `docs/windows-wsl.md`: platform support matrix and WSL troubleshooting for
+  native Windows users, covering the virtualization-conflict hang class
+  (`wsl --status` hanging after install), approval-hash environment binding,
+  and filesystem identity requirements. Linked from the README, install
+  guide, compound vault guide, and the wiki skill's transaction reference.
+
+### Changed
+
+- The `UNSUPPORTED_PLATFORM` refusal message now points to
+  `docs/windows-wsl.md` for users whose WSL setup is itself misbehaving.
+
 ## [2.1.0] - 2026-07-31
 
 Native Windows compatibility.
