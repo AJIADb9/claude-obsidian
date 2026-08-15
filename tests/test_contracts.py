@@ -76,7 +76,8 @@ class CanonicalContractTests(unittest.TestCase):
         contracted = {item["id"] for item in document["capabilities"]}
         discovered = {path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md")}
         self.assertEqual(discovered, contracted)
-        self.assertEqual(15, len(contracted))
+        # 15 upstream skills plus the fork's youtube capture runner.
+        self.assertEqual(16, len(contracted))
 
     def test_product_contract_locks_privacy_compatibility_and_release_authority(
         self,
