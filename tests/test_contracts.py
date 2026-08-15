@@ -150,6 +150,7 @@ class CanonicalContractTests(unittest.TestCase):
         document = _read(ROOT / "config" / "capabilities.json")
         behavioral_targets = {
             "tests/test_detect_transport.py",
+            "tests/test_fold_extract.py",
             "tests/test_lint_engine.py",
             "tests/test_retrieve.py",
             "tests/test_vault_ops.py",
