@@ -8,7 +8,7 @@ Python package (`src/claude_obsidian/`) exposed as `co-*` CLI entrypoints (see `
 - `skills/` — Claude Code skills (wiki, wiki-ingest, wiki-query, wiki-lint, wiki-cli, wiki-retrieve, wiki-mode, save, canvas, autoresearch, think, defuddle, obsidian-bases, obsidian-markdown, wiki-fold)
 - `src/claude_obsidian/` — installable package backing `co-*` scripts; also mirrored/invoked as `scripts/*.py` (legacy direct-invoke path — see `mem:tech_stack`)
 - `scripts/` — shell + python utilities invoked directly by skills (not all migrated into the package)
-- `bin/` — setup scripts (`setup-dragonscale.sh`, `setup-retrieve.sh`, `setup-mode.sh`) — opt-in feature installers
+- `scripts/setup-*.sh` — opt-in feature installers (`setup-dragonscale.sh`, `setup-retrieve.sh`, `setup-mode.sh`, `setup-vault.sh`, `setup-multi-agent.sh`); moved from the former top-level `bin/` in v2.2.0
 - `tests/` — hermetic python + bash tests, run via `Makefile` targets, mirrored in CI (`mem:task_completion`)
 - `wiki/` — the actual Obsidian knowledge base content (generated/curated, not source code)
 - `.raw/` — immutable source docs; Claude reads, never modifies

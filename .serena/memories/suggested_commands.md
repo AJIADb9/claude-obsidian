@@ -14,9 +14,9 @@ found in Makefile/CI; translate `python3 X` -> `uv run X` when running commands 
 - `make clean-test-state` — wipe `.vault-meta/` runtime locks/caches (locks, tiling/embed cache, transport/mode json, hook.log)
 
 ## Opt-in feature setup
-- `bash bin/setup-dragonscale.sh`
-- `bash bin/setup-retrieve.sh` (v1.7 hybrid retrieval)
-- `bash bin/setup-mode.sh` (v1.8 methodology mode picker)
+- `bash scripts/setup-dragonscale.sh`
+- `bash scripts/setup-retrieve.sh` (v1.7 hybrid retrieval)
+- `bash scripts/setup-mode.sh` (v1.8 methodology mode picker)
 
 ## Ad hoc CLI smoke checks (from CI, useful for manual verification)
 - `python3 scripts/wiki-mode.py get|config|id|templates`
