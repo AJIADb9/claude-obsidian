@@ -1,6 +1,6 @@
 [project]
 name = "claude-obsidian"
-version = "2.1.0"
+version = "2.2.0"
 description = "Claude + Obsidian vault tooling: recoverable operation transactions, provenance ledgers, deterministic lint, hybrid retrieval, transport detection."
 requires-python = ">=3.9"
 dependencies = []
