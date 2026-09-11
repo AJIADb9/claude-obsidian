@@ -57,9 +57,9 @@ chmod +x "$STUB_DIR/wsl.exe"
 
 native_output="$(
   PATH="$POSIX_STUB_DIR:$PATH" CO_PRINT_COMMAND=1 \
-    bash "$WRAPPER" lint --vault /home/user/vault
+    bash "$WRAPPER" lint --vault /srv/vault
 )"
-assert_contains "native passthrough keeps posix vault" "$native_output" "/home/user/vault"
+assert_contains "native passthrough keeps posix vault" "$native_output" "/srv/vault"
 assert_contains "native passthrough calls the core" "$native_output" "scripts/claude-obsidian.py"
 assert_not_contains "native passthrough does not use wsl" "$native_output" "wsl.exe"
 
