@@ -77,5 +77,11 @@ Stop and report the boundary when any of these occurs:
 - a key claim cannot be verified;
 - sources require access or rights the user has not supplied.
 
+A blocked fetch does not satisfy any of these. Before recording a source as
+unavailable or a question as unanswerable by the web, retry it through the
+`web-search-fallback` route (`curl` with a browser User-Agent, then the site's
+own raw/API endpoint). Only an exhausted escalation counts as a stop condition;
+a single non-200 response counts as nothing.
+
 Research output remains a reviewable dossier. Merging it into canonical pages is
 a separate approved transaction.
