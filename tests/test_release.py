@@ -619,6 +619,7 @@ class CanonicalPolicyTests(unittest.TestCase):
             "assets/cover.png",
             "assets/screenshots/graph-view.png",
             "assets/screenshots/wiki-map-view.png",
+            "assets/social-preview.png",
             "tests/fixtures/capture/sample.pdf",
         ]
         self.assertEqual(expected_binaries, list(reviewed))
@@ -628,7 +629,7 @@ class CanonicalPolicyTests(unittest.TestCase):
                 reviewed[path],
             )
         self.assertIn("assets", config["include_roots"])
-        for path in expected_binaries[:3]:
+        for path in expected_binaries[:4]:
             self.assertTrue(_selected(path, config))
         self.assertNotIn("_templates", config["include_roots"])
         self.assertFalse((ROOT / "_templates").exists())
