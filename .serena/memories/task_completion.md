@@ -1,15 +1,26 @@
 # task completion checklist
 
-Before considering a coding task done in this repo:
-1. If `src/claude_obsidian/*.py` logic changed, check whether the mirrored `scripts/*.py` copy (see
-   `mem:tech_stack` on the dual-copy issue) also needs the same change — CI/Makefile run the `scripts/` copies.
-2. Run the relevant `make test-*` target(s) (or `make test` for full suite) — see `mem:suggested_commands`
-   for the target list and the uv-run substitution rule.
-3. If you touched any `skills/*/SKILL.md` or `agents/*.md` frontmatter, mentally re-check it has the fields
-   CI's lint-skills job requires (`name`+`description` for skills, `tools:` for agents) — no local lint target
-   for this, only CI.
-4. If you touched `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, or `hooks/hooks.json`,
-   validate it parses as JSON.
-5. Before `git commit` on a non-trivial change, dispatch the `verifier` agent (per project CLAUDE.md) —
-   read-only pass over `git diff --cached`, returns BLOCKER/HIGH/MEDIUM/LOW findings.
-6. No repo-wide type checker or formatter is configured (no ruff/mypy config found at root) — don't invent one.
+1. Behavioral change: run `make test` in WSL on ext4 (`mem:suggested_commands`
+   explains why not over `/mnt`). On Windows, at minimum run the windows-smoke
+   allowlist natively.
+2. Touched `skills/` or `config/capabilities.json`: run
+   `scripts/claude-obsidian.py contracts --check-only`, `contracts --verify`, and
+   `package validate`. Adding or removing a skill also means updating the count
+   assertions in `tests/test_contracts.py` and `tests/test_setup_multi_agent.py`
+   (`mem:conventions`).
+3. Touched `.claude-plugin/plugin.json`, `config/public-marketplace.json`, or
+   `hooks/hooks.json`: `package validate` covers JSON validity and version drift.
+4. Touched anything that ships: `scripts/claude-obsidian.py release build
+   --output /tmp/x.zip` must stay green. It fails closed on unreviewed binaries,
+   absolute user-home paths, emails, and secret-shaped strings, and it requires a
+   clean worktree whose bytes match the index.
+5. The suite must not mutate or create product files. CI proves this with
+   `git diff --exit-code` and an empty `git status --porcelain -uall`; check the
+   same locally before committing.
+6. Never commit CRLF. `.gitattributes` is `* -text`, so a CRLF blob is stored
+   verbatim and turns the next upstream merge into a whole-file conflict.
+7. Non-trivial change: dispatch the `verifier` agent over `git diff --cached`
+   before committing.
+8. Do not add a linter or formatter config. None is configured and none is a gate.
+9. Never push, tag, publish a release, or mutate issues without explicit owner
+   approval. Pushes go to `origin` (the fork) only, never to `upstream`.
