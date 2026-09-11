@@ -2384,6 +2384,16 @@ def test_read_runtime_bytes_fails_closed_on_a_same_size_content_change() -> None
             calls += 1
             if calls == 2:
                 target.write_bytes(tampered)
+                # A same-size rewrite is visible only through the mtime, and a
+                # filesystem whose timestamps are coarser than this test is fast
+                # cannot represent it: WSL2 ext4-in-VHD quantizes to 4ms, so the
+                # seed write and the rewrite share one tick and every stat field
+                # stays byte-identical. Stamp the rewrite the way the
+                # single-touch tolerance probe above does, so the scenario under
+                # test exists on every host instead of only on hosts with
+                # fine-grained timestamps.
+                stamp = original_fstat(descriptor).st_mtime_ns + 5_000_000_000
+                os.utime(target, ns=(stamp, stamp))
             return original_fstat(descriptor)
 
         os.fstat = counting_fstat

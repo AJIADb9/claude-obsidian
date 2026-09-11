@@ -39,8 +39,15 @@ expect to replay it on the next upstream release.
 - When both sides rewrite the same skill paragraph, prefer keeping both: upstream
   usually adds a structural rule, the fork usually adds an egress note.
 
-## Known gaps
+## Host traps
 
-- `tests/test_transaction.py` cannot pass on WSL2 ext4-in-VHD; it passes on
-  upstream CI's native Linux runners. Verify any suspicion against a pristine
-  `upstream/main` clone in the same environment before blaming a fork change.
+- WSL2 ext4-in-VHD quantizes file timestamps to 4ms. Any test that relies on two
+  rapid writes producing distinct `st_mtime_ns` will fail here and pass on
+  upstream CI. Construct the timestamp with `os.utime(..., ns=...)` instead of
+  trusting the clock. `tests/test_transaction.py` needed exactly that fix.
+- `release build` cannot run natively on Windows: its preflight audit of the
+  staged archive reports `invalid_archive / ZIP end record is missing`. Pristine
+  `upstream/main` fails the same way, and upstream runs release-safety on ubuntu
+  only. Build in WSL.
+- Before blaming a fork change for any failure, reproduce it against a pristine
+  `upstream/main` clone in the same environment.
