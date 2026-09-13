@@ -80,8 +80,23 @@ EXIT_NO_OLLAMA = 10
 
 # `## 2026-08-14`
 DATE_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s*$")
+# The fold id is used verbatim as a filename (`wiki/folds/{FOLD_ID}.md`), so it
+# must stay path-safe. Its inputs are an int, two ISO dates and an int, which is
+# safe today only by construction; assert the shape so a future change that
+# threads anything else into the id fails loudly instead of writing a bad path.
+FOLD_ID_RE = re.compile(
+    r"^fold-k\d{1,2}-from-\d{4}-\d{2}-\d{2}-to-\d{4}-\d{2}-\d{2}-n\d+$"
+)
 # `- **query** | Scrap Mechanic — "what are the perks…"`
-ENTRY_RE = re.compile(r"^-\s+\*\*([a-z][a-z-]*)\*\*\s*\|\s*(.+?)\s*$", re.IGNORECASE)
+# The op may be compound: `- **capture + save** | …` when one logical day of work
+# was applied as two transactions. An op is one token, optionally joined by `+`
+# to further tokens; spelling it that way rather than widening the character
+# class keeps bolded prose containing a pipe from parsing as an entry.
+OP_TOKEN = r"[a-z][a-z-]*"
+ENTRY_RE = re.compile(
+    rf"^-\s+\*\*({OP_TOKEN}(?:\s*\+\s*{OP_TOKEN})*)\*\*\s*\|\s*(.+?)\s*$",
+    re.IGNORECASE,
+)
 WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 
 PROMPT = """\
@@ -404,6 +419,10 @@ def main():
     batch = entries[:want]
     dates = sorted(e["date"] for e in batch)
     fold_id = f"fold-k{args.k}-from-{dates[0]}-to-{dates[-1]}-n{want}"
+    if not FOLD_ID_RE.fullmatch(fold_id):
+        log(f"ERR: refusing to emit a fold id that is not path-safe: {fold_id!r}")
+        log("     The id becomes the filename wiki/folds/{id}.md.")
+        return EXIT_USAGE
     source = "\n\n".join(entry_text(e) for e in batch)
 
     result = {
