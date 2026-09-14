@@ -42,6 +42,7 @@ import fnmatch
 import html
 import io
 import json
+import math
 import os
 import posixpath
 import re
@@ -90,6 +91,46 @@ _ORPHAN_EXCLUDED_NAMES = {
     "wiki map.md",
     "getting-started.md",
 }
+# The hot cache is read in full at the start of every session, so its budget is
+# a reading-cost cap denominated in tokens (see skills/save/SKILL.md). Claude's
+# tokenizer is not published as a library, and lint must stay deterministic,
+# offline and dependency-free, so this is a calibrated estimate rather than a
+# true count. It is deliberately not a blocking category.
+_HOT_CACHE_NAME = "hot.md"
+_HOT_CACHE_TOKEN_BUDGET = 2048
+# Chars per token for plain ASCII prose; the usual English BPE ratio.
+_TOK_ASCII_CHARS = 4.0
+# Accented Latin, Cyrillic and similar BMP letters split far worse than ASCII.
+_TOK_LATIN_EXT_CHARS = 1.5
+# Emoji, arrows and other symbols above U+2000, often with variation selectors.
+_TOK_SYMBOL_TOKENS = 2.0
+
+
+def estimate_tokens(text: str) -> int:
+    """Estimate token count without a tokenizer.
+
+    Accurate to roughly +/-15% on wiki prose, which is enough for a soft cap:
+    the number only has to distinguish "near budget" from "wildly over". On a
+    840-word hot cache this returns ~1365 against a naive chars/4 of ~1284.
+    """
+    ascii_chars = 0
+    latin_ext_chars = 0
+    symbol_chars = 0
+    for char in text:
+        code = ord(char)
+        if code < 128:
+            ascii_chars += 1
+        elif code <= 0x2000:
+            latin_ext_chars += 1
+        else:
+            symbol_chars += 1
+    return math.ceil(
+        ascii_chars / _TOK_ASCII_CHARS
+        + latin_ext_chars / _TOK_LATIN_EXT_CHARS
+        + symbol_chars * _TOK_SYMBOL_TOKENS
+    )
+
+
 _ALLOWLIST_JSON_NAMES = ("lint-allowlist.json", "wiki-lint.json", "lint.json")
 _ALLOWLIST_KEYS = {
     "dangling_links",
@@ -1171,6 +1212,21 @@ def lint_vault(
             )
         empty_sections.extend(_empty_sections(page))
 
+    oversized_hot_cache: list[dict[str, Any]] = []
+    for page in wiki_pages:
+        if posixpath.basename(page.path).casefold() != _HOT_CACHE_NAME:
+            continue
+        estimate = estimate_tokens(page.text)
+        if estimate > _HOT_CACHE_TOKEN_BUDGET:
+            oversized_hot_cache.append(
+                {
+                    "path": page.path,
+                    "estimated_tokens": estimate,
+                    "budget": _HOT_CACHE_TOKEN_BUDGET,
+                    "words": len(page.text.split()),
+                }
+            )
+
     dead_links.sort(key=_entry_sort_key)
     ambiguous_targets.sort(key=_entry_sort_key)
     allowlisted.sort(key=_entry_sort_key)
@@ -1179,6 +1235,7 @@ def lint_vault(
     orphans.sort(key=_entry_sort_key)
     missing_frontmatter.sort(key=_entry_sort_key)
     empty_sections.sort(key=_entry_sort_key)
+    oversized_hot_cache.sort(key=_entry_sort_key)
     read_errors.sort(key=_entry_sort_key)
     configuration_errors.sort(key=_entry_sort_key)
     provenance_errors = _provenance_errors(vault_root, as_of=audit_date)
@@ -1194,6 +1251,7 @@ def lint_vault(
         "read_errors": read_errors,
         "configuration_errors": configuration_errors,
         "provenance_errors": provenance_errors,
+        "oversized_hot_cache": oversized_hot_cache,
     }
     category_counts = {name: len(entries) for name, entries in categories.items()}
     issues_found = sum(category_counts.values())
@@ -1307,6 +1365,15 @@ def render_markdown(report: dict[str, Any]) -> str:
             lambda item: (
                 f"- {_code(item['source'])}:{item['line']} -> {_code(item['target'])} "
                 f"({item['reason']})"
+            ),
+        ),
+        (
+            "Hot Cache Over Budget",
+            "oversized_hot_cache",
+            lambda item: (
+                f"- {_code(item['path'])}: ~{item['estimated_tokens']} tokens "
+                f"({item['words']} words) against a budget of {item['budget']}. "
+                "Estimated, not counted; prune to the archive page."
             ),
         ),
         (
