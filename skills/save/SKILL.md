@@ -74,8 +74,17 @@ Draft all changes before touching vault state. A complete Save normally couples:
 - `wiki/index.md` or the active methodology index;
 - one new entry in `wiki/log.md` above every existing entry (directly below
   the log title and introduction is fine), with existing lines unchanged;
-- a refreshed `wiki/hot.md` under 500 words;
+- a refreshed `wiki/hot.md` under **2048 tokens**;
 - source or claim ledger updates only when evidence changed.
+
+The hot-cache cap is a reading-cost cap, not an aesthetic one: `hot.md` is read
+in full at the start of every session, so its budget is denominated in tokens
+rather than words. Callout-dense, wikilink-heavy caches tokenize far worse than
+prose, which is why a word count is a poor proxy. **Refreshing the cache means
+pruning it in the same transaction.** A Save that prepends an entry and never
+removes one regrows the page to tens of thousands of words in about a month,
+regardless of discipline. Move what no longer earns its place to the archive
+page as part of this operation, not as a later cleanup.
 
 Every selected canonical page must be linked from a declared active index or
 MOC in this bundle. For a new page or removal, update its active catalog. An
