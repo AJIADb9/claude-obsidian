@@ -1,13 +1,13 @@
 ---
 name: think
-description: Apply the Fable-derived 10-stage OBSERVE, OBSERVE, LISTEN, THINK, CONNECT, CONNECT, FEEL, ACCEPT, CREATE, GROW loop to consequential or ambiguous reasoning and decisions. Use for think this through, deep think, architecture review, postmortem, tradeoff analysis, or challenges to assumptions. This is a reasoning review, not a deterministic vault health check or repair workflow.
+description: Structured ten-stage reasoning review (evidence frame, bias check, alternatives, system effects, counterargument, verification) for consequential or ambiguous decisions. Use for think this through, deep think, architecture review, postmortem, tradeoff analysis, or challenges to assumptions. This is a reasoning review, not a deterministic vault health check or repair workflow.
 ---
 
 # Think
 
-Use the ten stages as a loop of attention, not a ceremonial transcript. Scale
-the depth to novelty, stakes, uncertainty, and irreversibility. Keep the final
-reasoning summary concise and evidence-bearing.
+Use the ten stages as a checklist of angles to cover, not a sequence to narrate.
+Size the written review to novelty, stakes, uncertainty, and irreversibility.
+Keep the final write-up concise and evidence-bearing.
 
 This skill is read-only. It may inspect available evidence, but it does not
 edit files, execute a vault mutation, commit Git, or publish anything. If the
@@ -28,12 +28,12 @@ quotation, locator, test result, consensus, or confidence level.
 
 ## The ten stages
 
-### 1. OBSERVE — external
+### 1. OBSERVE - external
 
 Read the actual inputs, current state, constraints, failures, and prior work.
 Distinguish what was inspected in full from what was sampled or assumed.
 
-### 2. OBSERVE — internal
+### 2. OBSERVE - internal
 
 Name the biases most likely to distort this decision: anchoring, ownership,
 novelty, familiarity, urgency, sunk cost, confirmation, or a desired verdict.
@@ -51,12 +51,12 @@ Reduce the problem to invariants, alternatives, tradeoffs, and failure modes.
 Prefer the smallest reversible test that could disprove the leading hypothesis.
 Treat failure behavior as part of the specification.
 
-### 5. CONNECT — lateral
+### 5. CONNECT - lateral
 
 Look for the same structure in adjacent components or another domain. Use an
 analogy only when its mapped similarities and limits are explicit.
 
-### 6. CONNECT — system
+### 6. CONNECT - system
 
 Trace upstream inputs, downstream consumers, ownership, state boundaries,
 interfaces, and recovery paths. Check whether a locally sound decision creates
