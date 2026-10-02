@@ -53,9 +53,21 @@ Capture maturity is adapter-dependent:
   ingesting the resulting create-only `.raw/captured/` path. Do not build a
   canonical claim whose only locator is an outside-vault path.
 - URL capture requires an available network/fetch adapter and explicit consent.
-- PDFs, images, audio, video, OCR, and transcripts require a host capability or
-  configured adapter. If unavailable, preserve the locator and report the
-  unsupported extraction; do not pretend the media was read.
+- PDFs, Word, PowerPoint, Excel, EPUB, HTML files, images, audio and video are
+  read through the `anymd` adapter (local Rust binary, no API key; npm only,
+  `uvx anymd` does not exist):
+
+  ```bash
+  npx -y @sylphx/anymd "$FILE" > "$SCRATCH/$NAME.md"   # add --pages 1-5 for a range
+  ```
+
+  Its output carries `<!-- page N -->` anchors; cite them as the locator range
+  in source and claim records. OCR needs `tesseract` on PATH and transcripts
+  need `ffmpeg` plus whisper.cpp; `npx -y @sylphx/anymd doctor` lists what is
+  present. An image-only PDF or a media file without those tools returns
+  metadata only. If the adapter or `npx` is unavailable, or the output is
+  empty, preserve the locator and report the unsupported extraction; do not
+  pretend the media was read.
 - Store extracted text or metadata only when actually produced. Do not claim a
   binary was copied when the transaction contains only text.
 
