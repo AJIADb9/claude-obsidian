@@ -1,13 +1,13 @@
 ---
 name: think
-description: Apply the Fable-derived 10-stage OBSERVE, OBSERVE, LISTEN, THINK, CONNECT, CONNECT, FEEL, ACCEPT, CREATE, GROW loop to consequential or ambiguous reasoning and decisions. Use for think this through, deep think, architecture review, postmortem, tradeoff analysis, or challenges to assumptions. This is a reasoning review, not a deterministic vault health check or repair workflow.
+description: Structured ten-stage reasoning review (evidence frame, bias check, alternatives, system effects, counterargument, verification) for consequential or ambiguous decisions. Use for think this through, deep think, architecture review, postmortem, tradeoff analysis, or challenges to assumptions. This is a reasoning review, not a deterministic vault health check or repair workflow.
 ---
 
 # Think
 
-Use the ten stages as a loop of attention, not a ceremonial transcript. Scale
-the depth to novelty, stakes, uncertainty, and irreversibility. Keep the final
-reasoning summary concise and evidence-bearing.
+Use the ten stages as a checklist of angles to cover, not a sequence to narrate.
+Size the written review to novelty, stakes, uncertainty, and irreversibility.
+Keep the final write-up concise and evidence-bearing.
 
 This skill is read-only. It may inspect available evidence, but it does not
 edit files, execute a vault mutation, commit Git, or publish anything. If the

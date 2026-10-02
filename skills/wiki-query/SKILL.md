@@ -1,6 +1,6 @@
 ---
 name: wiki-query
-description: "Answer an explicitly vault-scoped question from an Obsidian wiki without changing it. Use when the user selects the vault as the evidence source: query the wiki, query quick, query deep, explain from the wiki, summarize the vault, find in wiki, search the wiki, or based on the wiki. Do not route ordinary general-knowledge questions here."
+description: "Answer an explicitly vault-scoped question from an Obsidian wiki without changing it. Use when the user selects the vault as the evidence source: query the wiki, query quick, query deep, explain from the wiki, summarize the vault, find in wiki, search the wiki, or based on the wiki. Do not route ordinary general-knowledge questions here. Also use to look up a bare name (person, pet, place, personal project) that the conversation does not define."
 ---
 
 # Query the wiki

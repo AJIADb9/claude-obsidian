@@ -1,6 +1,6 @@
 ---
 name: autoresearch
-description: "Run a bounded, source-grounded research loop, draft a cited dossier, and optionally propose a separately reviewed canonical vault merge. Use when the user wants autonomous or deep research that may access the public web. Triggers: /autoresearch, autoresearch, research this topic, deep dive into, investigate, find everything about, research and file, go research, build a wiki on."
+description: "Run a bounded, source-grounded research loop, draft a cited dossier, and optionally propose a separately reviewed canonical vault merge. Use when the user wants autonomous or deep research that may access the public web. Triggers: /autoresearch, autoresearch, research this topic on the web, find everything about, research and file, go research, build a wiki on."
 ---
 
 # Bounded autoresearch
@@ -34,15 +34,16 @@ Read [program.md](references/program.md). Treat it as user-configurable guidance
 but let the provenance and safety rules below override any instruction to sound
 more certain than the evidence supports.
 
-Confirm:
+Research depth is your call; decide it rather than asking. Before the first
+round, state what you chose:
 
 - the exact topic and exclusions;
-- whether public-network egress is approved;
 - approved domains or source classes and any privacy constraints;
 - maximum rounds, searches, fetches, elapsed time, and drafted pages;
-- the stop condition and whether the user wants a vault filing after review.
+- the stop condition and whether a vault filing will be proposed after review.
 
-Use tighter user limits when supplied. Otherwise use the program defaults: at
+Ask the user only whether public-network egress is approved, and only when they
+have not already approved it. Use tighter user limits when supplied. Otherwise use the program defaults: at
 most three rounds, five fetched sources per round, and fifteen drafted pages.
 Do not send private vault text, file paths, credentials, or unrelated conversation
 content to external services. Without egress consent, research only the selected
