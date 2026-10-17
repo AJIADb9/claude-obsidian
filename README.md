@@ -17,6 +17,15 @@
 </p>
 
 <p align="center">
+  <a href="https://www.star-history.com/agricidaniel/claude-obsidian">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=AgriciDaniel/claude-obsidian&type=trending&theme=dark">
+      <img src="https://api.star-history.com/badge?repo=AgriciDaniel/claude-obsidian&type=trending" alt="GitHub Trending Repository of the Day">
+    </picture>
+  </a>
+</p>
+
+<p align="center">
   <a href="#from-source-to-living-knowledge">See the workflow</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#15-skills-one-system">Explore the skills</a> ·
