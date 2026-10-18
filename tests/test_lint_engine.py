@@ -1657,8 +1657,32 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
         )
 
     def test_parent_junction_surrogate_is_not_traversed_or_read(self) -> None:
+        self._assert_parent_junction_surrogate_is_not_traversed_or_read()
+
+    def test_parent_junction_surrogate_with_aliased_temporary_parent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            vault = Path(directory) / "vault"
+            base = Path(directory).resolve()
+            actual = base / "actual"
+            alias = base / "alias"
+            actual.mkdir()
+            try:
+                alias.symlink_to(actual, target_is_directory=True)
+            except OSError:
+                self.skipTest("symlinks unavailable")
+            original_temporary_directory = tempfile.TemporaryDirectory
+
+            def aliased_temporary_directory(*args: object, **kwargs: object):
+                kwargs["dir"] = alias
+                return original_temporary_directory(*args, **kwargs)
+
+            with mock.patch.object(
+                tempfile, "TemporaryDirectory", aliased_temporary_directory
+            ):
+                self._assert_parent_junction_surrogate_is_not_traversed_or_read()
+
+    def _assert_parent_junction_surrogate_is_not_traversed_or_read(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            vault = Path(directory).resolve() / "vault"
             wiki = vault / "wiki"
             junction = vault / "junction"
             wiki.mkdir(parents=True)
@@ -1671,10 +1695,13 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
             )
             original_lstat = Path.lstat
             original_read_text = Path.read_text
+            surrogate_observed = False
 
             def junction_lstat(path: Path):
+                nonlocal surrogate_observed
                 metadata = original_lstat(path)
                 if path == junction:
+                    surrogate_observed = True
                     return mock.Mock(
                         st_mode=metadata.st_mode,
                         st_reparse_tag=0xA0000003,
@@ -1692,6 +1719,7 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
             ):
                 report = lint_engine.lint_vault(wiki, as_of="2026-10-18")
 
+        self.assertTrue(surrogate_observed)
         self.assertEqual(1, len(report["dead_links"]))
         self.assertEqual("target-not-found", report["dead_links"][0]["reason"])
 
