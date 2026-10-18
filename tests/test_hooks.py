@@ -459,6 +459,8 @@ def test_stop_status_scopes_recovery_advice_for_mixed_journals() -> None:
 
 def main() -> None:
     test_hook_dispatch_avoids_full_cli_imports()
+    test_session_start_script_emits_utf8_under_a_legacy_console_encoding()
+    test_session_context_fifo_hot_cache_never_blocks()
     test_hook_schema_uses_supported_session_start_shape()
     test_fork_dispatch_keeps_session_context_explicit_and_read_only()
     test_context_is_bounded_and_delimiter_safe()
@@ -477,6 +479,48 @@ def main() -> None:
     test_stop_status_regular_journal_read_failure_requires_manual_inspection()
     test_stop_status_scopes_recovery_advice_for_mixed_journals()
     print("All hook tests passed.")
+
+
+def _hook_env(vault: Path) -> dict[str, str]:
+    env = {key: value for key, value in os.environ.items() if not key.startswith("CLAUDE_OBSIDIAN_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["CLAUDE_OBSIDIAN_VAULT"] = str(vault)
+    env["CLAUDE_OBSIDIAN_SESSION_CONTEXT"] = "1"
+    return env
+
+
+def test_session_start_script_emits_utf8_under_a_legacy_console_encoding() -> None:
+    text = "Café résumé — ✓ 日本"
+    with tempfile.TemporaryDirectory() as td:
+        vault = make_vault(Path(td) / "vault", text + "\n")
+        env = _hook_env(vault)
+        env["PYTHONIOENCODING"] = "cp1252"
+        for event in ("session-start", "stop"):
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/claude-obsidian.py"), "hook", event],
+                cwd=vault, env=env, capture_output=True, timeout=20,
+            )
+            assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+            if event == "session-start":
+                assert text in result.stdout.decode("utf-8"), result.stdout
+
+
+def test_session_context_fifo_hot_cache_never_blocks() -> None:
+    if not hasattr(os, "mkfifo"):
+        return
+    with tempfile.TemporaryDirectory() as td:
+        vault = make_vault(Path(td) / "vault", "safe\n")
+        (vault / "wiki/hot.md").unlink()
+        os.mkfifo(vault / "wiki/hot.md")
+        try:
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/claude-obsidian.py"), "hook", "session-start"],
+                cwd=vault, env=_hook_env(vault), capture_output=True, text=True, timeout=20,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AssertionError("SessionStart blocked on a FIFO hot cache") from exc
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == ""
 
 
 def test_hook_dispatch_avoids_full_cli_imports() -> None:

@@ -29,7 +29,7 @@ from .checkpoint import checkpoint_operation
 from .contracts import evaluate_capabilities, validate_contracts
 from .extensions import dragonscale_bundle
 from .gates import evaluate_release_gates
-from .hook_adapter import emit_session_start, emit_stop_status
+from .hook_adapter import emit_session_start, emit_stop_status, force_utf8_stdio
 from .ledgers import LedgerValidationError, migration_bundle, strict_json_loads
 from .lint_engine import lint_vault, render_markdown
 from .mode_config import validate_mode_folders
@@ -1338,27 +1338,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _force_utf8_stdio() -> None:
-    """Emit UTF-8 regardless of the console code page.
-
-    On Windows, redirected stdout/stderr default to the locale encoding
-    (cp1252), so any non-ASCII page title crashes ``_emit``'s
-    ``ensure_ascii=False`` output.  ``newline=""`` keeps JSON output
-    byte-identical across platforms.
-    """
-
-    for stream in (sys.stdout, sys.stderr):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is None:
-            continue
-        try:
-            reconfigure(encoding="utf-8", newline="")
-        except (OSError, ValueError):
-            pass
-
-
 def main(argv: Sequence[str] | None = None) -> int:
-    _force_utf8_stdio()
+    force_utf8_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

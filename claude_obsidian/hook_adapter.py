@@ -32,6 +32,25 @@ CLOSE_TAG = "</claude-obsidian-context>"
 _SAFE_OPERATION_ID = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 
 
+def force_utf8_stdio() -> None:
+    """Emit UTF-8 regardless of the console code page.
+
+    On Windows, redirected stdout/stderr default to the locale encoding
+    (cp1252), so non-ASCII vault text crashes hook and ``ensure_ascii=False``
+    CLI output. ``newline=""`` keeps output byte-identical across platforms.
+    The hook fast path calls this without importing the full CLI.
+    """
+
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", newline="")
+        except (OSError, ValueError):
+            pass
+
+
 def _bounded_regular_bytes(root: Path, path: Path, limit: int) -> bytes | None:
     """Read a confined regular file through no-follow directory descriptors."""
 
