@@ -31,9 +31,11 @@ SESSION_START_HOOK_TYPES = {"command", "mcp_tool"}
 SESSION_START_MATCHERS = {"startup", "resume", "clear", "compact", "fork"}
 PORTABLE_SKILL_KEYS = ("name", "description")
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-RESERVED_PLUGIN_PREFIXES = ("claude-", "anthropic-", "anthropics-", "cc-plugin-")
-RESERVED_PLUGIN_NAMES = frozenset({"claude", "anthropic", "anthropics", "claude-code", "claude-mods"})
-RESERVED_OFFICIAL_WORDS = frozenset({"claude", "anthropic"})
+# The host compares names with separators removed for exact and "official"
+# matches, and allows separators inside a reserved prefix such as cc-plugin.
+RESERVED_PLUGIN_PREFIX_RE = re.compile(r"^(?:claude|anthropics?|cc-*plugin)-")
+RESERVED_PLUGIN_NAMES = frozenset({"claude", "anthropic", "anthropics", "claudecode", "claudemods"})
+RESERVED_OFFICIAL_WORDS = ("claude", "anthropic")
 MARKETPLACE_TEMPLATE = "config/public-marketplace.json"
 MARKETPLACE_PATH = ".claude-plugin/marketplace.json"
 YAML_PLAIN_FORBIDDEN_START = frozenset("-?:,[]{}#&*!|>'\"%@`")
@@ -456,22 +458,23 @@ def _validate_hooks(root: Path) -> list[dict[str, str]]:
 
 
 def _is_reserved_plugin_name(name: str) -> bool:
-    words = name.split("-")
+    compact = name.replace("-", "")
     return (
-        name in RESERVED_PLUGIN_NAMES
-        or name.startswith(RESERVED_PLUGIN_PREFIXES)
+        compact in RESERVED_PLUGIN_NAMES
+        or RESERVED_PLUGIN_PREFIX_RE.match(name) is not None
         or any(
-            "official" in pair and bool(RESERVED_OFFICIAL_WORDS.intersection(pair))
-            for pair in zip(words, words[1:])
+            f"official{word}" in compact or f"{word}official" in compact
+            for word in RESERVED_OFFICIAL_WORDS
         )
     )
 
 
 def _validate_renames(marketplace: dict[str, Any], entries: Any) -> list[dict[str, str]]:
-    """Mirror the host rule that each renames chain ends in a listed plugin or null.
+    """Require each renames chain to end in a listed plugin or null, as the host does.
 
-    A name that is still listed cannot also be a former name, so migration stays
-    unambiguous.
+    This is deliberately stricter than the host: former names must be
+    kebab-case, and a name that is still listed cannot also be a former name,
+    so migration stays unambiguous.
     """
     renames = marketplace.get("renames", {})
     if not isinstance(renames, dict) or not all(

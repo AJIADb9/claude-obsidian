@@ -407,6 +407,40 @@ class DirectTransportTests(unittest.TestCase):
             elapsed = time.monotonic() - started
         self.assertLess(elapsed, 3.0)
 
+    def test_tls_handshake_gets_only_the_time_left_after_a_slow_connect(self):
+        from claude_obsidian import ollama as shared
+
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        accepted = []
+        acceptor = threading.Thread(
+            target=lambda: accepted.append(listener.accept()[0]), daemon=True
+        )
+        acceptor.start()
+        real_create = socket.create_connection
+
+        def slow_create(*args, **kwargs):
+            # The TCP connect itself consumes most of the request budget, then
+            # the server never answers the TLS ClientHello.
+            time.sleep(0.8)
+            return real_create(*args, **kwargs)
+
+        port = listener.getsockname()[1]
+        request = urllib.request.Request(f"https://127.0.0.1:{port}/api/status")
+        try:
+            with unittest.mock.patch.object(socket, "create_connection", slow_create):
+                started = time.monotonic()
+                with self.assertRaises(OSError):
+                    shared.open_direct(request, 1.2)
+                elapsed = time.monotonic() - started
+        finally:
+            acceptor.join(2)
+            for connection in accepted:
+                connection.close()
+            listener.close()
+        self.assertLess(elapsed, 1.7)
+
     def test_prompt_reply_within_deadline_is_decoded(self):
         with SlowDripServer(phase="body", interval=0.0) as server:
             document = self._get(server.url, 3.0)

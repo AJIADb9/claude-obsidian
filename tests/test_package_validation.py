@@ -351,13 +351,19 @@ class PackageValidationTests(unittest.TestCase):
                 if not ok:
                     self.assertIn("invalid_marketplace_renames", codes)
 
-    def test_official_beside_a_host_word_is_reserved(self) -> None:
+    def test_reserved_names_match_the_host_separator_rules(self) -> None:
         for name, reserved in (
             ("official-claude-tools", True),
             ("anthropic-official", True),
             ("notes-official-claude", True),
             ("official-notes", False),
             ("notes-claude-and-official", False),
+            ("officialclaudex", True),
+            ("xclaude-official", True),
+            ("claudecode", True),
+            ("ccplugin-notes", True),
+            ("claudenotes", False),
+            ("ccpluginnotes", False),
         ):
             with self.subTest(name), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)

@@ -230,10 +230,32 @@ class _DeadlineSocket:
         return getattr(self._sock, name)
 
 
+def _deadline_create_connection(create_connection, deadline):
+    """Reset a fresh socket's timeout to what remains after the TCP connect.
+
+    A TLS handshake runs on that socket next, so it must not receive the
+    whole timeout again.
+    """
+
+    def create(*args, **kwargs):
+        sock = create_connection(*args, **kwargs)
+        try:
+            sock.settimeout(_remaining(deadline))
+        except BaseException:
+            sock.close()
+            raise
+        return sock
+
+    return create
+
+
 class _DeadlineHTTPConnection(http.client.HTTPConnection):
     def __init__(self, *args, deadline, **kwargs):
         self._deadline = deadline
         super().__init__(*args, **kwargs)
+        self._create_connection = _deadline_create_connection(
+            self._create_connection, deadline
+        )
 
     def connect(self):
         self.timeout = _remaining(self._deadline)
@@ -258,12 +280,16 @@ if hasattr(http.client, "HTTPSConnection") and hasattr(urllib.request, "HTTPSHan
         def __init__(self, *args, deadline, **kwargs):
             self._deadline = deadline
             super().__init__(*args, **kwargs)
+            self._create_connection = _deadline_create_connection(
+                self._create_connection, deadline
+            )
 
         def connect(self):
-            # The TLS handshake uses the remaining time as its socket timeout;
-            # every later send and receive is bounded by the shared deadline.
+            # The TLS handshake uses the time left after the TCP connect as its
+            # socket timeout; later sends and receives share the same deadline.
             self.timeout = _remaining(self._deadline)
             super().connect()
+            _remaining(self._deadline)
             self.sock = _DeadlineSocket(self.sock, self._deadline)
 
     class _DeadlineHTTPSHandler(urllib.request.HTTPSHandler):
