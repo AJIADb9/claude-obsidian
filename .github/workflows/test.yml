@@ -3,8 +3,9 @@ name: Hermetic verification
 on:
   push:
     branches: [main]
+  # Every pull request, including one stacked on another PR's branch, gets
+  # the full matrix before it can land anywhere that later reaches main.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
