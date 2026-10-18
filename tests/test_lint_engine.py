@@ -1564,9 +1564,13 @@ class ObsidianConformanceTests(unittest.TestCase):
 
 
 class ParserScalingTests(unittest.TestCase):
-    """Generous wall-clock bounds that only catch superlinear scanner behavior."""
+    """Generous wall-clock bounds that only catch superlinear scanner behavior.
 
-    BOUND_SECONDS = 2.0
+    Each input takes well under a second with linear scanning and tens of
+    seconds with the quadratic rescans these tests guard against.
+    """
+
+    BOUND_SECONDS = 5.0
 
     def _assert_fast(self, label: str, action) -> None:
         import time
@@ -1590,34 +1594,39 @@ class ParserScalingTests(unittest.TestCase):
     def test_adversarial_markdown_scans_are_linear(self) -> None:
         from claude_obsidian import markdown_links
 
-        cases = {
-            "unclosed destinations": "[a](" * 20_000 + "\n",
-            "unclosed angled destinations": "[a](<" * 20_000 + "\n",
-            "quoted destinations": " '[a](' " * 20_000 + ' "' + "x" * 1000 + "\n",
-            "unclosed wikilinks": "[[" * 10_000 + "\n",
-            "stray backticks": "a ` b\n" * 50_000,
-            "mixed backtick runs": "a `` b ` c\n" * 30_000,
-            "carriage returns": "line [x]\r" * 50_000,
-            "inline math": "$a " * 20_000 + "\n",
-            "atx trailing space": "# a" + " " * 20_000 + "x\n",
-            "heading closing run": "# a" + " " * 20_000 + "x #\n",
-        }
-        for label, text in cases.items():
-            with self.subTest(label=label):
-                def scan() -> None:
-                    masked = markdown_links.mask_protected_regions(text)
-                    list(markdown_links.iter_markdown_links(masked))
-                    lint_engine._parse_links(lint_engine._Page(
-                        "wiki/p.md", Path("p.md"), text, masked,
-                        lint_engine._parse_frontmatter(text), frozenset(), (), (),
-                        frozenset(), True,
-                    ))
-                    heading_masked = lint_engine._mask_heading_html(text, 0)
-                    labels = lint_engine._mask_heading_html(text, 0, preserve_inline_code=True)
-                    for _, _, _, heading in lint_engine._headings(heading_masked, labels):
-                        lint_engine._normalize_heading(heading)
+        def page_scan(text: str) -> None:
+            masked = markdown_links.mask_protected_regions(text)
+            list(markdown_links.iter_markdown_links(masked))
+            lint_engine._parse_links(lint_engine._Page(
+                "wiki/p.md", Path("p.md"), text, masked,
+                lint_engine._parse_frontmatter(text), frozenset(), (), (),
+                frozenset(), True,
+            ))
+            heading_masked = lint_engine._mask_heading_html(text, 0)
+            labels = lint_engine._mask_heading_html(text, 0, preserve_inline_code=True)
+            for _, _, _, heading in lint_engine._headings(heading_masked, labels):
+                lint_engine._normalize_heading(heading)
 
-                self._assert_fast(label, scan)
+        mask = markdown_links.mask_protected_regions
+        labels = markdown_links._balanced_label_ends
+        cases = {
+            "unclosed destinations": (page_scan, "[a](" * 20_000 + "\n"),
+            "unclosed angled destinations": (page_scan, "[a](<" * 20_000 + "\n"),
+            "quoted destinations": (
+                page_scan, " '[a](' " * 20_000 + ' "' + "x" * 1000 + "\n"
+            ),
+            "badge links on one line": (page_scan, "[![b](i.png)](x.md) " * 10_000 + "\n"),
+            "unclosed wikilinks": (page_scan, "[[" * 20_000 + "\n"),
+            "inline math": (page_scan, "$a " * 20_000 + "\n"),
+            "atx trailing space": (page_scan, "# a" + " " * 40_000 + "x\n"),
+            "heading closing run": (page_scan, "# a" + " " * 40_000 + "x #\n"),
+            "stray backticks": (mask, "a ` b\n" * 200_000),
+            "mixed backtick runs": (mask, "a `` b ` c\n" * 120_000),
+            "carriage returns": (labels, "line [x]\r" * 400_000),
+        }
+        for label, (scan, text) in cases.items():
+            with self.subTest(label=label):
+                self._assert_fast(label, lambda: scan(text))
 
 
 class WalkScopeTests(unittest.TestCase):

@@ -118,6 +118,9 @@ def _inline_code_limit(text: str, index: int, baseline: int) -> int:
     while cursor < len(text):
         following_end = text.find('\n', cursor)
         following_end = len(text) if following_end < 0 else following_end + 1
+        if text[cursor] not in _BLOCK_START_CHARS and not text[cursor].isspace():
+            cursor = following_end  # Unindented prose continues the paragraph.
+            continue
         line = text[cursor:following_end].rstrip('\r\n').expandtabs(4)
         line_depth, column = _quote_prefix(line)
         body = line[column:]
