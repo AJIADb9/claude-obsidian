@@ -61,6 +61,7 @@ from claude_obsidian.json_utils import strict_json_loads
 from claude_obsidian.visible_paths import is_visible_path
 from claude_obsidian.limits import MAX_CANONICAL_LEDGER_BYTES
 from claude_obsidian.markdown_links import (
+    HTML_COMPLETE_TAG_RE as _HTML_COMPLETE_TAG_RE, html_block_start as _html_block_start,
     iter_markdown_links, iter_wikilinks,
     markdown_destination as _markdown_destination,
     markdown_visible_text,
@@ -105,8 +106,9 @@ _ALLOWLIST_KEYS = {
 _TOP_LEVEL_YAML_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):(?:[ \t]*(.*))?$")
 _FENCE_OPEN_RE = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})(?:[^\r\n]*)$")
 # The label alternation avoids lazy backtracking over long trailing spaces.
+# Indentation is spaces only: a tab reaches the indented-code column.
 _ATX_HEADING_RE = re.compile(
-    r"^[ \t]{0,3}(#{1,6})[ \t]+(.*[^ \t\r\n]|[ \t])[ \t]*$", re.MULTILINE
+    r"^ {0,3}(#{1,6})[ \t]+(.*[^ \t\r\n]|[ \t])[ \t]*$", re.MULTILINE
 )
 _ATX_CLOSING_RE = re.compile(r"(?<![ \t])[ \t]+#+[ \t]*$")
 _HEADING_BLOCK_ID_RE = re.compile(r"(?<![ \t])[ \t]+\^[A-Za-z0-9][A-Za-z0-9_-]*[ \t]*$")
@@ -114,8 +116,12 @@ _HEADING_BLOCK_ID_RE = re.compile(r"(?<![ \t])[ \t]+\^[A-Za-z0-9][A-Za-z0-9_-]*[
 _HEADING_LINK_STRIPPED_RE = re.compile(r"%%|[:|^#\[\]]")
 _SETEXT_UNDERLINE_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
 _THEMATIC_BREAK_RE = re.compile(r"^ {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$")
-# Paragraph text after these is lazy container content, never a Setext title.
-_LAZY_CONTAINER_RE = re.compile(r"^ {0,3}(?:>|(?:[-+*]|\d{1,9}[.)])[ \t]+[^ \t])")
+# One container marker: a blockquote or list item, with one following space.
+_CONTAINER_MARKER_RE = re.compile(r" {0,3}(?:>[ \t]?|(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$))")
+# Inner content starting one of these blocks leaves no paragraph to continue.
+_NON_PARAGRAPH_START_RE = re.compile(
+    r" {0,3}(?:#{1,6}(?:[ \t]|$)|`{3,}|~{3,}|<!--|<\?|<![A-Za-z]|<!\[CDATA\[)"
+)
 # These block starts cannot supply paragraph text to a following Setext line.
 _PARAGRAPH_BREAK_RE = re.compile(
     r"^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-+*][ \t]|\d{1,9}[.)][ \t]|"
@@ -469,6 +475,36 @@ def _wikilink_visible_label(match: re.Match[str]) -> str:
     return _unescape_wikilink(visible.strip())
 
 
+def _container_state(line: str) -> tuple[bool, int | None]:
+    """Describe what a blockquote or list line leaves open for later lines.
+
+    The first value is true when paragraph text is open: only that absorbs
+    following lazy lines. An empty marker or a heading, thematic break, fence,
+    indented code or HTML block inside the container leaves nothing to
+    continue. The second value is the content column of a list-only container
+    whose HTML block continues on lines indented at least that far.
+    """
+    rest = line.expandtabs(4)
+    container = quoted = False
+    while not _THEMATIC_BREAK_RE.match(rest) and (marker := _CONTAINER_MARKER_RE.match(rest)):
+        container = True
+        quoted = quoted or ">" in marker.group(0)
+        rest = rest[marker.end():]
+    column = len(line.expandtabs(4)) - len(rest)
+    if not container or not rest.strip() or _THEMATIC_BREAK_RE.match(rest):
+        return False, None
+    if len(rest) - len(rest.lstrip(" ")) >= 4:
+        return False, None
+    if _HTML_COMPLETE_TAG_RE.match(rest) or _html_block_start(rest) or rest.lstrip(" ").startswith("<!--"):
+        return False, None if quoted else column
+    return not _NON_PARAGRAPH_START_RE.match(rest), None
+
+
+def _split_lines(text: str) -> list[str]:
+    """Split only at ``\n``; masking may blank other Unicode line separators."""
+    return [line for line in re.split(r"(?<=\n)", text) if line]
+
+
 def _headings(masked: str, labels: str) -> list[tuple[int, int, int, str]]:
     """Scan ATX and paragraph-based Setext headings outside protected regions.
 
@@ -480,30 +516,40 @@ def _headings(masked: str, labels: str) -> list[tuple[int, int, int, str]]:
     headings: list[tuple[int, int, int, str]] = []
     paragraph: list[tuple[int, str]] = []
     lazy_container = False
+    html_column: int | None = None
     offset = 0
-    for raw_line, label_raw in zip(masked.splitlines(keepends=True), labels.splitlines(keepends=True)):
+    for raw_line, label_raw in zip(_split_lines(masked), _split_lines(labels)):
         line = raw_line.rstrip('\r\n')
         label_line = label_raw.rstrip('\r\n')
         atx = _ATX_HEADING_RE.fullmatch(line)
+        label_atx = _ATX_HEADING_RE.fullmatch(label_line) if atx else None
+        # Inline code directly after the marker, as in ``#`x` y``, is
+        # paragraph text: the masked line only looks like a heading.
+        literal_hash = atx is not None and label_atx is None
         underline = _SETEXT_UNDERLINE_RE.fullmatch(line)
-        if atx:
-            label_atx = _ATX_HEADING_RE.fullmatch(label_line)
-            assert label_atx is not None
+        if atx and label_atx:
             headings.append((offset, offset + len(line), len(atx.group(1)),
                              _ATX_CLOSING_RE.sub("", label_atx.group(2)).strip()))
             paragraph = []
-            lazy_container = False
+            lazy_container, html_column = False, None
         elif underline and _SETEXT_UNDERLINE_RE.fullmatch(label_line) and paragraph:
             label = ' '.join(text.strip() for _, text in paragraph)
             headings.append((paragraph[0][0], offset + len(line),
                              1 if underline.group(1).startswith('=') else 2, label))
             paragraph = []
-        elif not label_line.strip() or underline or _PARAGRAPH_BREAK_RE.match(line):
+        elif not label_line.strip() or underline or (
+                not literal_hash and _PARAGRAPH_BREAK_RE.match(line)):
             paragraph = []
             # A list item or quote paragraph absorbs following lazy lines, and
             # a Setext underline cannot be a lazy continuation line.
-            lazy_container = bool(_LAZY_CONTAINER_RE.match(line)) and not _THEMATIC_BREAK_RE.match(line)
-        elif not lazy_container:
+            lazy_container, html_column = _container_state(label_line)
+        elif lazy_container:
+            pass
+        elif html_column is not None and (
+                len(expanded := label_line.expandtabs(4)) - len(expanded.lstrip(" ")) >= html_column):
+            pass  # Indented content of an HTML block that opened a list item.
+        else:
+            html_column = None
             paragraph.append((offset, label_line))
         offset += len(raw_line)
     return headings

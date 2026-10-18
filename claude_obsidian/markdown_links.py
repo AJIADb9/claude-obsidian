@@ -17,6 +17,8 @@ _LIST = re.compile(r'(?:[-+*]|\d{1,9}[.)])[ \t]+')
 _QUOTE_MARKER = re.compile(r' {0,3}> ?')
 _ATX_START = re.compile(r'#{1,6}(?:[ \t]|$)')
 _THEMATIC_OR_UNDERLINE = re.compile(r'(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,}|=+[ \t]*|-+[ \t]*)$')
+_THEMATIC_BREAK = re.compile(r'(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$')
+_SETEXT_UNDERLINE = re.compile(r'(?:=+|-+)[ \t]*$')
 _LIST_ITEM_START = re.compile(r'(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)')
 _BACKTICK_RUN = re.compile(r'`+')
 _INLINE_SPECIAL = re.compile(r'[\n\\<%`$]')
@@ -38,7 +40,20 @@ _HTML_BLOCK_TAG_RE = re.compile(
 )
 
 
-def _html_block_end(text: str, start: int, line_end: int) -> int | None:
+# A lone complete tag opens an HTML block only where no paragraph is open.
+HTML_COMPLETE_TAG_RE = re.compile(
+    r" {0,3}(?:<[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*"
+    r"(?:[ \t]*=[ \t]*(?:[^ \t\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*[ \t]*/?>"
+    r"|</[A-Za-z][A-Za-z0-9-]*[ \t]*>)[ \t]*$"
+)
+
+
+def html_block_start(line: str) -> bool:
+    """Report whether a line opens a raw-text or block-tag HTML block."""
+    return bool(_HTML_RAW_OPEN_RE.match(line) or _HTML_BLOCK_TAG_RE.match(line))
+
+
+def _html_block_end(text: str, start: int, line_end: int, *, complete_tag: bool = False) -> int | None:
     """Bounded raw HTML support for heading analysis, not HTML rendering."""
     line = text[start:line_end]
     if (opening := _HTML_RAW_OPEN_RE.match(line)) is not None:
@@ -47,7 +62,7 @@ def _html_block_end(text: str, start: int, line_end: int) -> int | None:
             return len(text)
         end = text.find('\n', closer.end())
         return len(text) if end < 0 else end + 1
-    if _HTML_BLOCK_TAG_RE.match(line):
+    if _HTML_BLOCK_TAG_RE.match(line) or (complete_tag and HTML_COMPLETE_TAG_RE.match(line)):
         end = line_end
         while end < len(text):
             following = text.find('\n', end)
@@ -127,7 +142,14 @@ def _inline_code_limit(text: str, index: int, baseline: int) -> int:
         content = body.lstrip(' ')
         if not content or line_depth > depth:
             return cursor
-        if len(body) - len(content) < baseline + 4 and (
+        indent = len(body) - len(content)
+        # A Setext underline cannot be a lazy line, so it ends the paragraph
+        # only inside the same container content.
+        if (_SETEXT_UNDERLINE.match(content) and not _THEMATIC_BREAK.match(content)
+                and (line_depth < depth or indent < baseline)):
+            cursor = following_end
+            continue
+        if indent < baseline + 4 and (
             _is_fence_opener(content) or _ATX_START.match(content)
             or _THEMATIC_OR_UNDERLINE.match(content) or _LIST_ITEM_START.match(content)
             or content.startswith('<!--') or _HTML_RAW_OPEN_RE.match(content)
@@ -198,6 +220,7 @@ def mask_protected_regions(
             line = text[index:end].rstrip('\r\n')
             expanded = line.expandtabs(4)
             depth, column = _quote_prefix(expanded)
+            container = (quote_depth, lists, in_paragraph)
             if depth != quote_depth:
                 # Lists are tracked relative to the current blockquote content.
                 lists = []
@@ -248,7 +271,8 @@ def mask_protected_regions(
                         blank(index, end)
                     index = end
                     continue
-                if mask_html_blocks and (html_end := _html_block_end(text, index, end)) is not None:
+                if mask_html_blocks and (html_end := _html_block_end(
+                        text, index, end, complete_tag=not in_paragraph)) is not None:
                     blank(index, html_end)
                     in_paragraph = False
                     index = html_end
@@ -257,13 +281,22 @@ def mask_protected_regions(
                 in_paragraph = not (
                     (marker and not stripped) or _ATX_START.match(stripped)
                     or _THEMATIC_OR_UNDERLINE.match(stripped)
+                    # Heading analysis treats HTML opening a container as a block.
+                    or (mask_html_blocks and (html_block_start(stripped)
+                                              or HTML_COMPLETE_TAG_RE.match(stripped)))
                 )
+                if in_paragraph and not marker and container[2] and depth < container[0]:
+                    # A lazy continuation line keeps its blockquote open, so
+                    # the next quoted line still continues the same paragraph.
+                    quote_depth, lists = container[0], container[1]
             else:
                 in_paragraph = False
         elif index == 0 or text[index - 1] == '\n':
-            # Unindented prose closes lists and quotes and continues a paragraph.
-            lists = []
-            baseline = quote_depth = 0
+            # Unindented prose closes lists and quotes and continues a paragraph,
+            # except that a lazy line keeps an open quote paragraph's container.
+            if not (quote_depth and in_paragraph):
+                lists = []
+                baseline = quote_depth = 0
             in_paragraph = True
         if index in destinations:
             index = destinations[index]

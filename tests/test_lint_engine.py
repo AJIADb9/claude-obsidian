@@ -1548,6 +1548,92 @@ class ObsidianConformanceTests(unittest.TestCase):
             {"#Heading?", "#Quoted?"}, {entry["target"] for entry in report["dead_links"]}
         )
 
+    def test_setext_heading_follows_container_lines_without_open_paragraph(self) -> None:
+        # Each container line leaves no paragraph open, so the next line can
+        # start a paragraph that a Setext underline turns into a heading.
+        for body, title in (
+            ("> quote\n>\nTitle\n=====", "Title"), (">\nAlpha\n---", "Alpha"),
+            ("> # Delta\nAlpha\n===", "Alpha"), ("> ---\nAlpha\n---", "Alpha"),
+            ("- # Delta\nAlpha\n===", "Alpha"), ("* <b>\nAlpha\n---", "Alpha"),
+            (">1.\nh\n=", "h"), ("> <div>\nAlpha\n---", "Alpha"),
+            (">     code\nAlpha\n---", "Alpha"), ("-     code\nAlpha\n---", "Alpha"),
+        ):
+            with self.subTest(body=body):
+                report = self._lint({"wiki/index.md": self.FRONT + (
+                    f"[[#{title}]]\n\n{body}\n\nContent.\n"
+                )})
+                self.assertEqual([], report["dead_links"])
+        for body in ("> `code`\nAlpha\n---", "> ===\nAlpha\n---", "> a\n- b\nAlpha\n---"):
+            with self.subTest(body=body):
+                report = self._lint({"wiki/index.md": self.FRONT + (
+                    f"[[#Alpha]]\n\n{body}\n\nContent.\n"
+                )})
+                self.assertEqual(["#Alpha"], [entry["target"] for entry in report["dead_links"]])
+
+    def test_hash_followed_by_inline_code_is_paragraph_text(self) -> None:
+        report = self._lint({
+            "wiki/a.md": self.FRONT + "#`include` pulls in a header.\n\n[[#include pulls in a header]]\n",
+            "wiki/b.md": self.FRONT + "#`include` pulls\n===\n\n[[#include pulls]]\n",
+        })
+        self.assertEqual(["#include pulls in a header"], [entry["target"] for entry in report["dead_links"]])
+        self.assertEqual([], report["read_errors"])
+
+    def test_inline_code_with_unicode_line_separators_keeps_headings_aligned(self) -> None:
+        separators = "\x0b\x0c\x1c\x1d\x1e\x85  "
+        report = self._lint({"wiki/index.md": self.FRONT + (
+            f"Code `a{separators}b` here.\n\n# Real\n\nText.\n\n[[#Real]] [[#Missing]]\n"
+        )})
+        self.assertEqual(["#Missing"], [entry["target"] for entry in report["dead_links"]])
+
+    def test_random_markdown_never_raises_in_scanners(self) -> None:
+        import random
+
+        from claude_obsidian import markdown_links
+
+        alphabet = list("[]()!`~$%<>-=#*_\\|^: \t\na1") + [
+            "\r\n", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", " ", " ",
+            "[[", "]]", "```", "> ", "- ", "    ", "<!--", "-->", "%%", "$$", "<div>",
+            "# ", "\n# ", "\n===\n", "\n---\n", "\n- ", "\n> ",
+        ]
+        generator = random.Random(20261018)
+        for _ in range(1500):
+            text = "".join(generator.choice(alphabet) for _ in range(generator.randint(1, 80)))
+            with self.subTest(text=text):
+                masked = markdown_links.mask_protected_regions(text)
+                self.assertEqual(len(text), len(masked))
+                markdown_links.markdown_visible_text(text)
+                heading_masked = lint_engine._mask_heading_html(text, 0)
+                labels = lint_engine._mask_heading_html(text, 0, preserve_inline_code=True)
+                for _, _, _, heading in lint_engine._headings(heading_masked, labels):
+                    lint_engine._normalize_heading(heading)
+                lint_engine._parse_links(lint_engine._Page(
+                    "wiki/p.md", Path("p.md"), text, masked,
+                    lint_engine._parse_frontmatter(text), frozenset(), (), (),
+                    frozenset(), True,
+                ))
+
+    def test_tab_indented_hash_is_not_an_atx_heading(self) -> None:
+        report = self._lint({"wiki/index.md": self.FRONT + (
+            "[[#h3]]\n\npara\n\t# h3\n\nContent.\n"
+        )})
+        self.assertEqual(["#h3"], [entry["target"] for entry in report["dead_links"]])
+
+    def test_lazy_line_keeps_quote_paragraph_open(self) -> None:
+        report = self._lint({"wiki/index.md": self.FRONT + (
+            "> Quote starts\nlazy line\n>     [[dead-t1]] continues\n\n"
+            "> - item\nlazy\n>       [[dead-t2]]\n\n"
+            ">     [[Hidden]]\n"
+        )})
+        self.assertEqual(
+            {"dead-t1", "dead-t2"}, {entry["target"] for entry in report["dead_links"]}
+        )
+
+    def test_lazy_equals_line_does_not_end_code_span(self) -> None:
+        report = self._lint({"wiki/index.md": self.FRONT + (
+            ">`\n=\n[[Hidden]]`\n\n- a `b\n=\n[[Hidden]] c`\n\n[[Visible]]\n"
+        )})
+        self.assertEqual(["Visible"], [entry["target"] for entry in report["dead_links"]])
+
     def test_provenance_ledger_read_uses_shared_capacity_constant(self) -> None:
         from claude_obsidian.limits import MAX_CANONICAL_LEDGER_BYTES
 
