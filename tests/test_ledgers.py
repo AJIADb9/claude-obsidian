@@ -86,6 +86,18 @@ def test_migration_preserves_manifest_and_is_idempotent() -> None:
             SOURCE_SCHEMA
             in (vault / "wiki/meta/ledgers/source-ledger.json").read_text()
         )
+        # Ledgers are written in the compact canonical form; the workspace
+        # config stays indented for people.
+        for relative in (
+            "wiki/meta/ledgers/source-ledger.json",
+            "wiki/meta/ledgers/claim-ledger.json",
+        ):
+            text = (vault / relative).read_text(encoding="utf-8")
+            assert text == json.dumps(
+                json.loads(text), sort_keys=True, ensure_ascii=False,
+                separators=(",", ":"),
+            ) + "\n", relative
+        assert "\n  " in (vault / ".claude-obsidian.json").read_text()
         assert (
             CLAIM_SCHEMA in (vault / "wiki/meta/ledgers/claim-ledger.json").read_text()
         )
@@ -1215,6 +1227,33 @@ def test_claim_page_reads_and_anchor_parses_are_cached_per_exact_path() -> None:
     assert parser_calls == ["# Known\n", "# Planned\n"]
 
 
+def test_unindexed_anchor_page_is_a_validation_error_not_an_assertion() -> None:
+    ledger = {
+        "schema": CLAIM_SCHEMA,
+        "generated_at": "2026-07-11T00:00:00Z",
+        "claims": {"clm-0001": _unsupported_claim("wiki/A.md", "Known", 1)},
+    }
+    original_parser = ledgers_module._markdown_anchor_sets
+    # Break the anchor-index invariant; the validator must fail closed with
+    # its own error type even when assertions are disabled (python -O).
+    ledgers_module._markdown_anchor_sets = lambda text: None
+    try:
+        validate_claim_ledger(
+            ledger,
+            {"schema": SOURCE_SCHEMA, "sources": {}},
+            as_of=date(2026, 7, 11),
+            vault_root=Path("/synthetic-vault"),
+            file_reader=lambda path: b"# Known\n",
+        )
+    except LedgerValidationError as exc:
+        assert exc.errors[0]["path"] == "claims.clm-0001.location.anchor", exc.errors
+        assert "anchors were not indexed" in str(exc)
+    else:
+        raise AssertionError("an unindexed anchor page must be a validation error")
+    finally:
+        ledgers_module._markdown_anchor_sets = original_parser
+
+
 def test_claim_page_failure_cache_preserves_paths_and_is_local_to_one_call() -> None:
     pages: dict[str, bytes | None | Exception] = {
         "wiki/Missing.md": None,
@@ -1962,6 +2001,7 @@ def main() -> None:
     test_independence_grouping_matches_all_pairs_oracle_and_is_order_independent()
     test_independence_grouping_has_linear_identity_scan_bound()
     test_claim_page_reads_and_anchor_parses_are_cached_per_exact_path()
+    test_unindexed_anchor_page_is_a_validation_error_not_an_assertion()
     test_claim_page_failure_cache_preserves_paths_and_is_local_to_one_call()
     test_malformed_url_origins_never_count_as_evidence()
     test_active_file_source_must_exist_and_match_its_hash()

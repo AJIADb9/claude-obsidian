@@ -1056,7 +1056,14 @@ def validate_claim_ledger(
                             "claim page is not UTF-8",
                         )
                     else:
-                        assert isinstance(page_detail, tuple)
+                        if not isinstance(page_detail, tuple):
+                            invariant: list[dict[str, str]] = []
+                            _error(
+                                invariant,
+                                f"{prefix}.location.anchor",
+                                f"cannot verify anchor: {claim_path} anchors were not indexed",
+                            )
+                            raise LedgerValidationError(invariant)
                         wanted = anchor.strip()
                         headings, blocks = page_detail
                         if wanted.startswith("^"):
@@ -1385,12 +1392,20 @@ def migration_bundle(
         expected[relative] = (
             sha256_bytes(current_bytes) if current_bytes is not None else None
         )
+        # Canonical ledgers use the compact form that capacity compaction
+        # produces, so migrated ledgers do not spend capacity on formatting.
+        # The workspace config stays indented for human editing.
+        layout: dict[str, Any] = (
+            {"separators": (",", ":")}
+            if relative in CANONICAL_LEDGER_PATHS
+            else {"indent": 2}
+        )
         writes.append(
             {
                 "path": relative,
                 "mode": mode,
                 "content": json.dumps(
-                    value, indent=2, sort_keys=True, ensure_ascii=False
+                    value, sort_keys=True, ensure_ascii=False, **layout
                 )
                 + "\n",
             }
