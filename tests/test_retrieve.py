@@ -42,6 +42,10 @@ retrieve = import_script("retrieve", RETRIEVE)
 rerank = import_script("rerank", RERANK)
 bm25 = import_script("bm25", BM25)
 
+if str(ROOT / "tests") not in sys.path:
+    sys.path.insert(0, str(ROOT / "tests"))
+from test_ollama import FakeOllamaServer, SlowDripServer  # noqa: E402
+
 PROOF_DIGEST = "sha256:" + "a" * 64
 
 
@@ -1727,6 +1731,123 @@ def test_retrieve_keeps_healthy_hits_when_one_chunk_is_corrupt():
             assert_eq(f"{name} keeps vault bytes unchanged", before, after)
 
 
+FAKE_MODEL = "m1:latest"
+
+
+def _rerank_fixture(sandbox):
+    """One indexed synthetic chunk; retrieval itself never needs a provider."""
+    chunks_dir = sandbox / ".vault-meta" / "chunks" / "c-000030"
+    chunks_dir.mkdir(parents=True)
+    page_dir = sandbox / "wiki" / "fake"
+    page_dir.mkdir(parents=True)
+    page_text = "transport detection fallback chain"
+    (page_dir / "c-000030.md").write_text(page_text)
+    (chunks_dir / "chunk-000.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "page_path": "wiki/fake/c-000030.md",
+                "page_address": "c-000030",
+                "chunk_index": 0,
+                "raw_text": page_text,
+                "contextualized_text": page_text,
+                "prefix": "",
+                "prefix_source": "synthetic",
+                "char_count": len(page_text),
+                "body_hash": sha256_text(page_text),
+                "page_body_hash": sha256_text(page_text),
+                "created_at": "2026-05-17T00:00:00Z",
+            }
+        )
+    )
+    subprocess.run(
+        [sys.executable, str(BM25), "--vault", str(sandbox), "build"],
+        env=sandbox_env(sandbox),
+        capture_output=True,
+        timeout=10,
+        check=True,
+    )
+
+
+def _retrieve_with_fake(sandbox, server_url):
+    env = sandbox_env(sandbox)
+    env["OLLAMA_URL"] = server_url
+    return subprocess.run(
+        [sys.executable, str(RETRIEVE), "--vault", str(sandbox), "transport",
+         "--top", "1", "--model", FAKE_MODEL],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
+def test_retrieve_falls_back_when_ollama_port_returns_garbage():
+    for mode, strategy in (
+        ("badstatus", "bm25+rerank:noop-no-ollama"),
+        ("badproof", "bm25+rerank:noop-local-proof"),
+    ):
+        with tempfile.TemporaryDirectory() as tmpdir, FakeOllamaServer(mode, FAKE_MODEL) as server:
+            sandbox = Path(tmpdir)
+            _rerank_fixture(sandbox)
+            result = _retrieve_with_fake(sandbox, server.url)
+            posts = server.count("POST", "/api/embed")
+        assert_eq(f"{mode}: retrieve exits 0 instead of a traceback", 0, result.returncode)
+        assert_true(f"{mode}: no traceback", "Traceback" not in result.stderr, result.stderr[-400:])
+        out = json.loads(result.stdout)
+        assert_eq(f"{mode}: BM25 fallback strategy", strategy, out["strategy"])
+        assert_true(f"{mode}: BM25 candidates survive", len(out["candidates"]) == 1)
+        assert_eq(f"{mode}: no query or chunk text is embedded", 0, posts)
+
+
+def test_rerank_duplicate_remote_status_keys_send_no_query_text():
+    candidates = [{"chunk_id": "c-1:0", "path": ".vault-meta/chunks/c-1/chunk-000.json", "bm25_score": 2.0}]
+    with FakeOllamaServer("dupkey", FAKE_MODEL) as server:
+        with unittest.mock.patch.dict(os.environ, {"OLLAMA_URL": server.url}):
+            result = rerank.rerank("private query", candidates, top_k=1, model=FAKE_MODEL)
+        posts = server.count("POST", "/api/embed")
+        shows = server.count("POST", "/api/show")
+    assert_eq("duplicate remote key is a local-proof refusal", "noop-local-proof", result[0]["rerank_source"])
+    assert_eq("duplicate remote key sends no query text", 0, posts)
+    assert_eq("duplicate remote key stops before model metadata", 0, shows)
+
+
+def test_rerank_unrelated_cloud_model_still_reranks_locally():
+    with tempfile.TemporaryDirectory() as tmpdir, FakeOllamaServer("othercloud", FAKE_MODEL) as server:
+        sandbox = Path(tmpdir)
+        _rerank_fixture(sandbox)
+        result = _retrieve_with_fake(sandbox, server.url)
+        posts = server.count("POST", "/api/embed")
+    assert_eq("unrelated cloud model retrieve rc=0", 0, result.returncode)
+    out = json.loads(result.stdout)
+    assert_eq("unrelated cloud model keeps cosine rerank", f"bm25+rerank:cosine:{FAKE_MODEL}", out["strategy"])
+    assert_eq("query and one chunk are embedded locally", 2, posts)
+    with tempfile.TemporaryDirectory() as tmpdir, FakeOllamaServer("selfcloud", FAKE_MODEL) as server:
+        sandbox = Path(tmpdir)
+        _rerank_fixture(sandbox)
+        result = _retrieve_with_fake(sandbox, server.url)
+        posts = server.count("POST", "/api/embed")
+    out = json.loads(result.stdout)
+    assert_eq("requested remote model still refuses rerank", "bm25+rerank:noop-local-proof", out["strategy"])
+    assert_eq("requested remote model receives no text", 0, posts)
+
+
+def test_rerank_request_deadline_bounds_slow_drip_transport():
+    import time
+
+    with SlowDripServer(phase="body", interval=0.2) as server:
+        request = rerank.urllib.request.Request(server.url + "/api/tags", method="GET")
+        started = time.monotonic()
+        try:
+            rerank._ollama_json(request, 1)
+        except OSError:
+            pass
+        else:
+            raise Fail("FAIL slow-drip rerank response accepted past the request deadline")
+        elapsed = time.monotonic() - started
+    assert_true(f"slow-drip rerank request stops near its deadline ({elapsed:.1f}s)", elapsed < 3.0)
+
+
 def main():
     print("=== test_retrieve.py ===")
     test_import_sibling_resolves_hyphenated_names()
@@ -1774,6 +1895,10 @@ def main():
     test_no_rerank_flag_strategy_bm25_only()
     test_json_conversion_failures_preserve_rerank_fallbacks()
     test_retrieve_keeps_healthy_hits_when_one_chunk_is_corrupt()
+    test_retrieve_falls_back_when_ollama_port_returns_garbage()
+    test_rerank_duplicate_remote_status_keys_send_no_query_text()
+    test_rerank_unrelated_cloud_model_still_reranks_locally()
+    test_rerank_request_deadline_bounds_slow_drip_transport()
     print("\nAll retrieve tests passed.")
 
 
