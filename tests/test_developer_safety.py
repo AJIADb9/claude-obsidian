@@ -80,6 +80,48 @@ class DoctorReadinessTests(unittest.TestCase):
                     self.assertFalse(report["checks"]["mutation_lock_held"])
                     self.assertEqual(before, snapshot(base))
 
+    def test_unsafe_wiki_and_runtime_entries_are_unhealthy_without_writes(self):
+        with tempfile.TemporaryDirectory() as name:
+            base = Path(name)
+            outside = base / "outside"
+            (outside / "mutation.lock").mkdir(parents=True)
+            cases = ("wiki-symlink", "wiki-file", "transactions-symlink", "transactions-file", "lock-symlink")
+            for kind in cases:
+                with self.subTest(kind=kind):
+                    vault = make_vault(base / kind)
+                    meta = vault / ".vault-meta"
+                    meta.mkdir()
+                    if kind == "wiki-symlink":
+                        (vault / "wiki").rmdir()
+                        (vault / "wiki").symlink_to(outside, target_is_directory=True)
+                    elif kind == "wiki-file":
+                        (vault / "wiki").rmdir()
+                        (vault / "wiki").write_text("not a directory\n", encoding="utf-8")
+                    elif kind == "transactions-symlink":
+                        (meta / "transactions").symlink_to(outside, target_is_directory=True)
+                    elif kind == "transactions-file":
+                        (meta / "transactions").write_text("not a directory\n", encoding="utf-8")
+                    else:
+                        (meta / "mutation.lock").symlink_to(outside / "mutation.lock", target_is_directory=True)
+                    before = snapshot(base)
+                    code, report = self.doctor(vault)
+                    self.assertEqual(1, code, report)
+                    self.assertFalse(report["ok"])
+                    self.assertFalse(report["checks"]["mutation_lock_held"])
+                    if kind.startswith("wiki"):
+                        self.assertFalse(report["checks"]["wiki"])
+                        self.assertTrue(report["checks"]["runtime_state_safe"])
+                    else:
+                        self.assertTrue(report["checks"]["wiki"])
+                        self.assertFalse(report["checks"]["runtime_state_safe"])
+                    self.assertEqual(before, snapshot(base))
+            vault = make_vault(base / "held")
+            (vault / ".vault-meta/mutation.lock").mkdir(parents=True)
+            code, report = self.doctor(vault)
+            self.assertEqual(0, code, report)
+            self.assertTrue(report["checks"]["mutation_lock_held"])
+            self.assertTrue(report["checks"]["runtime_state_safe"])
+
     def test_write_and_search_access_are_both_required(self):
         with tempfile.TemporaryDirectory() as name:
             vault = make_vault(Path(name) / "vault")
@@ -111,7 +153,7 @@ class DoctorReadinessTests(unittest.TestCase):
                 self.assertEqual(0, code)
                 self.assertTrue(report["ok"])
                 self.assertEqual("claude-obsidian.doctor.v1", report["schema"])
-                self.assertEqual({"vault_exists", "obsidian_config", "wiki", "raw", "meta_writable", "mutation_lock_held"}, set(report["checks"]))
+                self.assertEqual({"vault_exists", "obsidian_config", "wiki", "raw", "meta_writable", "runtime_state_safe", "mutation_lock_held"}, set(report["checks"]))
                 self.assertEqual(before, snapshot(vault))
 
 

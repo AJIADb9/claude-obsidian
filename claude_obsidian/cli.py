@@ -132,26 +132,44 @@ def _selection(
     )
 
 
+def _plain_directory_state(path: Path) -> bool | None:
+    """lstat-only: True for a plain directory, None when absent, else False."""
+
+    try:
+        assert_unaliased_directory(path)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return False
+    return True
+
+
 def command_doctor(args: argparse.Namespace) -> int:
     selection = _selection(args)
     root = selection.root
     metadata = root / ".vault-meta"
-    safe_metadata = False
-    try:
-        assert_unaliased_directory(metadata)
-        safe_metadata = True
-        metadata_writable = os_access_writable(metadata)
-    except FileNotFoundError:
+    metadata_state = _plain_directory_state(metadata)
+    safe_metadata = metadata_state is True
+    if metadata_state is None:
         metadata_writable = os_access_writable(root)
-    except OSError:
-        metadata_writable = False
+    else:
+        metadata_writable = safe_metadata and os_access_writable(metadata)
+    # Every apply opens these through no-follow descriptors, so a symlinked
+    # or non-directory entry fails each mutation; report it instead of "ok".
+    lock_state = _plain_directory_state(metadata / "mutation.lock") if safe_metadata else None
+    runtime_state_safe = metadata_state is None or (
+        safe_metadata
+        and _plain_directory_state(metadata / "transactions") is not False
+        and lock_state is not False
+    )
     checks = {
         "vault_exists": root.is_dir(),
         "obsidian_config": (root / ".obsidian").is_dir(),
-        "wiki": (root / "wiki").is_dir(),
+        "wiki": _plain_directory_state(root / "wiki") is True,
         "raw": (root / ".raw").is_dir(),
         "meta_writable": metadata_writable,
-        "mutation_lock_held": safe_metadata and (metadata / "mutation.lock").exists(),
+        "runtime_state_safe": runtime_state_safe,
+        "mutation_lock_held": lock_state is True,
     }
     report = {
         "schema": "claude-obsidian.doctor.v1",
