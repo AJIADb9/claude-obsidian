@@ -1450,12 +1450,17 @@ def _read_ledger(
             from claude_obsidian.ledgers import strict_json_loads
         payload = strict_json_loads(raw.decode("utf-8"))
     except Exception as exc:
-        return None, [
-            {
-                "path": relative,
-                "message": f"cannot read provenance ledger: {exc.__class__.__name__}",
-            }
-        ]
+        code = getattr(exc, "code", None)
+        message = f"cannot read provenance ledger: {exc.__class__.__name__}"
+        if isinstance(code, str):
+            message += f" {code}"
+        if code == "VAULT_FILE_TOO_LARGE":
+            message += (
+                f"; the ledger exceeds {MAX_CANONICAL_LEDGER_BYTES} bytes. Run "
+                "`claude-obsidian.py capacity` and preview `capacity compact`; "
+                "never truncate ledger records"
+            )
+        return None, [{"path": relative, "message": message}]
     if not isinstance(payload, Mapping):
         return None, [
             {"path": relative, "message": "provenance ledger must be a JSON object"}

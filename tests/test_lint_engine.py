@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from datetime import date, datetime
 from pathlib import Path
 from unittest import mock
@@ -532,6 +533,26 @@ tags:
                 "DuplicateJSONKeyError" in item["message"]
                 for item in report["provenance_errors"]
             )
+        )
+
+    def test_oversized_ledger_error_names_the_code_and_capacity_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            copy = Path(directory) / "vault"
+            shutil.copytree(FIXTURE, copy)
+            ledgers = copy / "wiki/meta/ledgers"
+            ledgers.mkdir(parents=True)
+            with unittest.mock.patch.object(lint_engine, "MAX_CANONICAL_LEDGER_BYTES", 64):
+                (ledgers / "source-ledger.json").write_text(
+                    '{"schema":"claude-obsidian.source-ledger.v1",'
+                    + '"generated_at":"2026-07-11T00:00:00Z","sources":{}}'
+                    + " " * 64,
+                    encoding="utf-8",
+                )
+                report = lint_engine.lint_vault(copy, as_of="2026-07-11")
+        messages = [item["message"] for item in report["provenance_errors"]]
+        self.assertTrue(
+            any("VAULT_FILE_TOO_LARGE" in m and "capacity compact" in m for m in messages),
+            messages,
         )
 
     def test_provenance_freshness_uses_declared_audit_date(self) -> None:
