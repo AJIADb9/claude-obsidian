@@ -322,6 +322,73 @@ class PackageValidationTests(unittest.TestCase):
             codes = {item["code"] for item in validate_package(root)["findings"]}
             self.assertIn("duplicate_version_authority", codes)
 
+    def test_marketplace_renames_must_resolve_to_a_listed_plugin_or_null(
+        self,
+    ) -> None:
+        cases = {
+            "valid": ({"old-sample": "sample"}, True),
+            "removed": ({"gone": None}, True),
+            "chained": ({"oldest": "old", "old": "sample"}, True),
+            "missing-target": ({"old-sample": "absent"}, False),
+            "cycle": ({"a": "b", "b": "a"}, False),
+            "listed-key": ({"sample": "other"}, False),
+            "not-object": (["old-sample"], False),
+            "bad-name": ({"Old Sample": "sample"}, False),
+        }
+        for label, (renames, ok) in cases.items():
+            with self.subTest(label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.fixture(
+                    root, frontmatter="---\nname: sample\ndescription: Sample.\n---"
+                )
+                path = root / "config" / "public-marketplace.json"
+                marketplace = json.loads(path.read_text(encoding="utf-8"))
+                marketplace["renames"] = renames
+                path.write_text(json.dumps(marketplace), encoding="utf-8")
+                result = validate_package(root)
+                codes = {item["code"] for item in result["findings"]}
+                self.assertEqual(ok, result["ok"], result["findings"])
+                if not ok:
+                    self.assertIn("invalid_marketplace_renames", codes)
+
+    def test_official_beside_a_host_word_is_reserved(self) -> None:
+        for name, reserved in (
+            ("official-claude-tools", True),
+            ("anthropic-official", True),
+            ("notes-official-claude", True),
+            ("official-notes", False),
+            ("notes-claude-and-official", False),
+        ):
+            with self.subTest(name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.fixture(
+                    root, frontmatter="---\nname: sample\ndescription: Sample.\n---"
+                )
+                for relative in (
+                    ".claude-plugin/plugin.json",
+                    "config/public-marketplace.json",
+                ):
+                    path = root / relative
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    if "plugins" in data:
+                        data["plugins"][0]["name"] = name
+                    else:
+                        data["name"] = name
+                    path.write_text(json.dumps(data), encoding="utf-8")
+                codes = {item["code"] for item in validate_package(root)["findings"]}
+                self.assertEqual(reserved, "reserved_plugin_name" in codes)
+
+    def test_published_marketplace_migrates_the_former_plugin_identity(self) -> None:
+        plugin = json.loads(
+            (ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        for relative in (".claude-plugin/marketplace.json", "config/public-marketplace.json"):
+            with self.subTest(relative):
+                marketplace = json.loads((ROOT / relative).read_text(encoding="utf-8"))
+                self.assertEqual(
+                    {"claude-obsidian": plugin["name"]}, marketplace.get("renames")
+                )
+
     def test_skills_cannot_invoke_product_helpers_relative_to_the_vault_cwd(
         self,
     ) -> None:

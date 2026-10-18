@@ -234,11 +234,14 @@ metadata unless a separately configured adapter is explicitly approved.
 
 ## Upgrade and rollback
 
-Existing `claude-obsidian@agricidaniel-claude-obsidian` installations need the
-explicit [namespace migration sequence](namespace-migration.md#published-upgrade):
-record the scope, disable the old entry, verify the new adapter, and retain the
-disabled old installation until rollback is no longer needed. The uninstall
-commands below apply to the new identity only.
+Existing `claude-obsidian@agricidaniel-claude-obsidian` installations migrate
+through the marketplace `renames` map: after the marketplace updates, Claude
+Code rewrites the enabled key, and each user runs one
+`claude plugin install agricidaniel-obsidian@agricidaniel-claude-obsidian`.
+Managed settings need an administrator change. See the
+[namespace migration](namespace-migration.md#published-upgrade) for
+verification and rollback. The uninstall commands below apply to the new
+identity only.
 
 Upgrade product code independently from the user vault. Before a migration or
 large ingest, make a normal backup or snapshot. Knowledge writes are journaled;

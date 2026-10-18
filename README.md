@@ -280,9 +280,9 @@ Optional prefixes can use an explicitly selected installed local Ollama model;
 synthetic prefixes remain the default. See [provider controls](docs/prefix-providers.md).
 
 The Claude plugin namespace is `agricidaniel-obsidian`; repository and vault
-identities remain claude-obsidian. Existing installations need an explicit
-adapter migration when this candidate is published. See the
-[namespace migration](docs/namespace-migration.md).
+identities remain claude-obsidian. The marketplace migrates existing
+`claude-obsidian` installations to the new name; each user then installs it
+once. See the [namespace migration](docs/namespace-migration.md).
 
 High-risk accepted claims require two independent sources. Unsupported or
 contradictory evidence stays visible, and a grounded refusal is preferred over
