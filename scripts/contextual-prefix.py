@@ -20,11 +20,13 @@ cache use. No local quality or cache-savings claim follows from these settings.
 --local-ollama selects a separate optional path and requires an exact installed
 model:tag. Before sending page text, it checks that the server reports cloud
 disabled and the selected model has local metadata and an installed digest.
-Unsupported or unavailable servers use synthetic prefixes, with no cloud
-fallback. No server is started, no model is installed or pulled, and --no-llm
+Unsupported or unavailable servers use synthetic prefixes for new or changed
+chunks, with no cloud fallback; valid records from the same endpoint and model
+are kept. No server is started, no model is installed or pulled, and --no-llm
 overrides every provider option. A remote Ollama root requires the separate
 --allow-remote-ollama consent flag. Requests use disabled proxies, refused
-redirects, bounded JSON responses, timeouts, and explicit completion checks.
+redirects, bounded strict JSON responses, one wall-clock deadline per request,
+and explicit completion checks.
 
 Chunk growth bounds:
   Paragraph-aware chunks target 2,000 characters but are hard-split at 4,000
@@ -78,6 +80,7 @@ import os
 import re
 import secrets
 import stat
+import time
 import unicodedata
 import sys
 import urllib.error
@@ -94,8 +97,12 @@ if str(PLUGIN_ROOT) not in sys.path:
 
 from claude_obsidian.json_utils import strict_json_loads
 from claude_obsidian.ollama import (
+    NoRedirectHandler,
     OllamaLocalProofError,
+    normalize_model_digest,
+    open_direct,
     prove_local_model,
+    read_json_object,
     validate_model_response,
 )
 from claude_obsidian.paths import VaultSelectionError, resolve_vault_root
@@ -319,8 +326,16 @@ def chunk_record_matches(
     meta_fd=None,
     prefix_profile=None,
     expected_synthetic_prefix=None,
+    unverified_local_provider=None,
 ):
-    """Return whether a derived record matches its source and requested profile."""
+    """Return whether a derived record matches its source and requested profile.
+
+    ``unverified_local_provider`` is the validated URL and model of a local
+    Ollama request whose preflight failed. A record is then retained only when
+    it was produced by that same endpoint and model, under the current prompt
+    revision, with a well-formed installed digest. Its digest cannot be
+    re-proved during an outage, so it is neither upgraded nor replaced.
+    """
     try:
         if meta_fd is None:
             if path.is_symlink():
@@ -343,6 +358,25 @@ def chunk_record_matches(
     record_raw = record.get("raw_text")
     record_source = record.get("prefix_source")
     record_profile = record.get("prefix_profile")
+    if unverified_local_provider is not None:
+        provider = (
+            record_profile.get("provider") if isinstance(record_profile, dict) else None
+        )
+        digest = provider.get("digest") if isinstance(provider, dict) else None
+        try:
+            if normalize_model_digest(digest) != digest:
+                return False
+        except OllamaLocalProofError:
+            return False
+        prefix_profile = prefix_profile_for(
+            "ollama-local",
+            ollama_config={
+                "url": unverified_local_provider["url"],
+                "model": unverified_local_provider["model"],
+                "allow_remote": unverified_local_provider["allow_remote"],
+                "digest": digest,
+            },
+        )
     expected_contextualized = (
         f"{record_prefix}\n\n{record_raw}" if record_prefix else record_raw
     )
@@ -626,9 +660,7 @@ def cache_control_for(page_body, model=None):
     return {"type": "ephemeral"} if len(page_body) >= minimum else None
 
 
-class _NoProviderRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
+_NoProviderRedirect = NoRedirectHandler
 
 
 class ProviderOperationBudget:
@@ -690,29 +722,21 @@ class ProviderOperationBudget:
 
 
 def _open_provider_request(request, timeout):
-    """No ambient HTTP proxies or automatic redirects for provider requests."""
-    opener = urllib.request.build_opener(
-        urllib.request.ProxyHandler({}), _NoProviderRedirect()
-    )
-    return opener.open(request, timeout=timeout)
+    """No ambient proxies or redirects; ``timeout`` bounds the whole request."""
+    return open_direct(request, timeout)
 
 
 def _provider_json(request, timeout, limit):
+    deadline = time.monotonic() + timeout
     with _open_provider_request(request, timeout) as response:
-        if response.getcode() != 200:
-            raise ValueError("provider returned a non-success status")
-        content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-        if content_type != "application/json":
-            raise ValueError("provider response is not application/json")
-        if hasattr(response, "geturl") and response.geturl() != request.full_url:
-            raise ValueError("provider response target changed")
-        raw = response.read(limit + 1)
-    if len(raw) > limit:
-        raise ValueError("provider response exceeded the safe byte limit")
-    value = strict_json_loads(raw.decode("utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError("provider JSON response must be an object")
-    return value
+        return read_json_object(
+            response,
+            request,
+            limit=limit,
+            deadline=deadline,
+            label="provider",
+            require_target=False,
+        )
 
 
 def _prefix_text(value):
@@ -931,9 +955,24 @@ def prepare_ollama_config(url, model, *, allow_remote=False):
         RecursionError,
         UnicodeDecodeError,
         ValueError,
-    ):
-        log("  local Ollama preflight unavailable; using synthetic prefixes")
+    ) as exc:
+        # Reported once per operation. Valid records for unchanged chunks are
+        # kept; only changed chunks receive a synthetic fallback.
+        log(
+            f"  local Ollama preflight unavailable ({_preflight_failure_cause(exc)}); "
+            "keeping valid local prefixes and using synthetic prefixes for changed chunks"
+        )
         return None
+
+
+def _preflight_failure_cause(exc):
+    """Name the failure without echoing server-controlled protocol bytes."""
+    if isinstance(exc, http.client.HTTPException):
+        return f"malformed HTTP response: {type(exc).__name__}"
+    detail = str(exc).replace("\n", " ").strip()
+    if len(detail) > 200:
+        detail = detail[:200] + "..."
+    return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
 
 
 def _ollama_payload(config, page_title, page_body, chunk_text, *, envelope_id=None):
@@ -1127,6 +1166,7 @@ def process_page(
     progress_label="",
     root_fd=None,
     meta_fd=None,
+    ollama_request=None,
 ):
     body = read_page(page_path, root_fd=root_fd)
     fm, content = parse_frontmatter(body)
@@ -1143,6 +1183,11 @@ def process_page(
     prefix_profile = prefix_profile_for(tier, anthropic_model=anthropic_model, ollama_config=ollama_config)
     progress = (progress_label + " ") if progress_label else ""
     page_rel = str(page_path.relative_to(VAULT_ROOT))
+    # Local mode without a current proof (preflight failed, or peek skipped
+    # it): no request can be made, so existing records from the same local
+    # endpoint and model stay authoritative for unchanged chunks.
+    unproved_local = tier == "ollama-local" and not ollama_config
+    retained_local_provider = ollama_request if unproved_local else None
 
     planned = []
     active_paths = set()
@@ -1177,6 +1222,22 @@ def process_page(
                 expected_synthetic_prefix=expected_synthetic_prefix,
             )
         )
+        if not unchanged and retained_local_provider is not None:
+            unchanged = (
+                not rebuild
+                and chunk_path.exists()
+                and chunk_record_matches(
+                    chunk_path,
+                    page_rel,
+                    address,
+                    idx,
+                    raw,
+                    body_hash,
+                    page_body_hash,
+                    meta_fd=meta_fd,
+                    unverified_local_provider=retained_local_provider,
+                )
+            )
         if unchanged:
             skipped += 1
         else:
@@ -1213,7 +1274,10 @@ def process_page(
     staged = []
     page_envelope_id = None
     effective_tier = tier
-    if not peek and tier in {"anthropic-api", "ollama-local"} and planned:
+    if not peek and unproved_local and planned:
+        # The failed preflight was already reported once for the operation.
+        effective_tier = "synthetic"
+    elif not peek and tier in {"anthropic-api", "ollama-local"} and planned:
         provider_budget = provider_budget or ProviderOperationBudget()
         page_envelope_id = secrets.token_hex(16)
         provider_limit = (
@@ -1389,8 +1453,17 @@ def process_selection(args, pages, *, root_fd=None, meta_fd=None):
         max_request_bytes=args.provider_max_request_bytes,
     )
     ollama_config = None
-    if args.local_ollama and not args.no_llm and not args.peek:
-        ollama_config = prepare_ollama_config(args.ollama_url, args.ollama_model, allow_remote=args.allow_remote_ollama)
+    ollama_request = None
+    if args.local_ollama and not args.no_llm:
+        # Already validated by main(); repeated here so a direct caller cannot
+        # retain records against an unvalidated endpoint identity.
+        ollama_request = validate_ollama_config(
+            args.ollama_url, args.ollama_model, allow_remote=args.allow_remote_ollama
+        )
+        if not args.peek:
+            ollama_config = prepare_ollama_config(
+                args.ollama_url, args.ollama_model, allow_remote=args.allow_remote_ollama
+            )
     total = len(files)
     total_written = 0
     total_skipped = 0
@@ -1410,6 +1483,7 @@ def process_selection(args, pages, *, root_fd=None, meta_fd=None):
             progress_label=f"[{i}/{total}]",
             root_fd=root_fd,
             meta_fd=meta_fd,
+            ollama_request=ollama_request,
         )
         total_written += len(result["written"])
         total_skipped += result["skipped"]

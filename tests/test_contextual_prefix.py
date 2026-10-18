@@ -10,8 +10,10 @@ Usage:
   python3 tests/test_contextual_prefix.py
 """
 
+import contextlib
 import importlib.util
 import html
+import io
 import json
 import os
 import re
@@ -19,6 +21,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 from pathlib import Path
 from unittest import mock
@@ -36,6 +39,10 @@ HELPER = ROOT / "scripts" / "contextual-prefix.py"
 spec = importlib.util.spec_from_file_location("contextual_prefix", HELPER)
 cp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cp)
+
+if str(ROOT / "tests") not in sys.path:
+    sys.path.insert(0, str(ROOT / "tests"))
+from test_ollama import SlowDripServer  # noqa: E402
 
 
 class Fail(SystemExit):
@@ -1678,6 +1685,129 @@ def test_synthetic_no_llm_and_peek_consume_no_generation_budget():
         assert_eq("synthetic, no-llm, and peek use zero request bytes", 0, budget.bytes)
 
 
+LOCAL_DIGEST = "sha256:" + "a" * 64
+
+
+def _healthy_local_transport(calls):
+    documents = {
+        "/api/status": {"cloud": {"disabled": True}},
+        "/api/tags": {"models": [{"name": "tiny:fixture", "digest": LOCAL_DIGEST}]},
+        "/api/show": {"model_info": {"general.architecture": "fixture"}},
+        "/api/generate": {"model": "tiny:fixture", "response": "Local context sentence.",
+                          "done": True, "done_reason": "stop"},
+    }
+
+    def transport(request, timeout):
+        path = cp.urllib.parse.urlsplit(request.full_url).path
+        calls.append(path)
+        return ProviderResponse(documents[path])
+
+    return transport
+
+
+def _outage_transport(calls):
+    def transport(request, timeout):
+        calls.append(cp.urllib.parse.urlsplit(request.full_url).path)
+        raise cp.urllib.error.URLError(ConnectionRefusedError(111, "Connection refused"))
+
+    return transport
+
+
+def _run_local_cli(vault, transport):
+    saved = {name: getattr(cp, name) for name in
+             ("VAULT_ROOT", "WIKI_DIR", "META_DIR", "CHUNKS_DIR", "BM25_INDEX_PATH")}
+    errors = io.StringIO()
+    argv = [str(HELPER), "--vault", str(vault), "--all", "--local-ollama",
+            "--ollama-model", "tiny:fixture", "--ollama-url", "http://127.0.0.1:11434"]
+    try:
+        with (mock.patch.object(cp, "_open_provider_request", side_effect=transport),
+              mock.patch.object(cp, "anthropic_api_prefix",
+                                side_effect=AssertionError("cloud fallback forbidden")),
+              mock.patch.object(sys, "argv", argv),
+              contextlib.redirect_stderr(errors)):
+            code = cp.main()
+    finally:
+        for name, value in saved.items():
+            setattr(cp, name, value)
+    return code, errors.getvalue()
+
+
+def _chunk_bytes(vault):
+    return {path: path.read_bytes() for path in (vault / ".vault-meta/chunks").glob("*/chunk-*.json")}
+
+
+def test_local_outage_preserves_valid_local_records_and_ready_index():
+    with tempfile.TemporaryDirectory() as directory:
+        vault = Path(directory)
+        wiki = vault / "wiki"
+        wiki.mkdir()
+        (vault / ".obsidian").mkdir()
+        (wiki / "A.md").write_text("---\ntitle: A\n---\nExample alpha page.\n", encoding="utf-8")
+        (wiki / "B.md").write_text("---\ntitle: B\n---\nExample beta page.\n", encoding="utf-8")
+        calls = []
+        code, _errors = _run_local_cli(vault, _healthy_local_transport(calls))
+        assert_eq("healthy local run succeeds", 0, code)
+        assert_eq("healthy local run generates each chunk", 2, calls.count("/api/generate"))
+        records = [json.loads(raw) for raw in _chunk_bytes(vault).values()]
+        assert_true("healthy run records local prefixes",
+                    len(records) == 2 and all(r["prefix_source"] == "ollama-local" for r in records))
+        _ready_retrieval(vault)
+        chunks_before = _chunk_bytes(vault)
+        index_path = vault / ".vault-meta/bm25/index.json"
+        index_before = index_path.read_bytes()
+
+        outage_calls = []
+        code, errors = _run_local_cli(vault, _outage_transport(outage_calls))
+        assert_eq("unchanged outage run succeeds", 0, code)
+        assert_eq("outage stops at the first preflight request", ["/api/status"], outage_calls)
+        assert_eq("outage keeps every valid local record byte identical", chunks_before, _chunk_bytes(vault))
+        assert_eq("outage with no source change keeps the ready BM25 index", index_before,
+                  index_path.read_bytes())
+        assert_eq("preflight failure is reported once", 1, errors.count("preflight unavailable"))
+        assert_true("preflight failure names its real cause", "Connection refused" in errors)
+        assert_true("no misleading byte-budget diagnostic", "byte budget" not in errors)
+        _assert_retrieval_ready(vault)
+
+        (wiki / "B.md").write_text("---\ntitle: B\n---\nExample beta page, revised.\n", encoding="utf-8")
+        code, errors = _run_local_cli(vault, _outage_transport([]))
+        assert_eq("changed-page outage run succeeds", 0, code)
+        after = _chunk_bytes(vault)
+        unchanged_a = {path: raw for path, raw in chunks_before.items()
+                       if json.loads(raw)["page_path"] == "wiki/A.md"}
+        assert_eq("unchanged page keeps its local record", unchanged_a,
+                  {path: after[path] for path in unchanged_a})
+        changed = [json.loads(raw) for raw in after.values()
+                   if json.loads(raw)["page_path"] == "wiki/B.md"]
+        assert_true("only the changed page gets a synthetic fallback",
+                    len(changed) == 1 and changed[0]["prefix_source"] == "synthetic"
+                    and "revised" in changed[0]["raw_text"])
+        assert_true("changed chunk set invalidates the stale index", not index_path.exists())
+        assert_eq("changed-page preflight failure is reported once", 1,
+                  errors.count("preflight unavailable"))
+        assert_true("changed-page outage has no byte-budget diagnostic", "byte budget" not in errors)
+
+
+def test_provider_request_deadline_bounds_slow_drip():
+    with SlowDripServer(phase="body", interval=0.2) as server:
+        request = cp.urllib.request.Request(server.url + "/api/status")
+        started = time.monotonic()
+        try:
+            cp._provider_json(request, 1, cp.OLLAMA_RESPONSE_MAX_BYTES)
+        except OSError:
+            pass
+        else:
+            raise Fail("slow-drip provider response accepted past the request deadline")
+        elapsed = time.monotonic() - started
+        assert_true(f"slow-drip provider request stops near its deadline ({elapsed:.1f}s)", elapsed < 3.0)
+        port = cp.urllib.parse.urlsplit(server.url).port
+        with mock.patch.object(cp, "OLLAMA_PREFLIGHT_TIMEOUT_SEC", 1):
+            started = time.monotonic()
+            config = cp.prepare_ollama_config(f"http://127.0.0.1:{port}", "tiny:fixture")
+            elapsed = time.monotonic() - started
+    assert_eq("slow-drip preflight falls back", None, config)
+    assert_true(f"slow-drip preflight is bounded ({elapsed:.1f}s)", elapsed < 3.0)
+
+
 def main():
     print("=== test_contextual_prefix.py ===")
     test_invalid_utf8_aborts_selection_before_provider_or_cache_work()
@@ -1726,6 +1856,8 @@ def main():
     test_chunk_parent_swap_never_redirects_atomic_publication()
     test_read_page_preserves_crlf_bytes()
     test_parse_frontmatter_accepts_crlf()
+    test_local_outage_preserves_valid_local_records_and_ready_index()
+    test_provider_request_deadline_bounds_slow_drip()
     print("\nAll contextual-prefix tests passed.")
 
 
