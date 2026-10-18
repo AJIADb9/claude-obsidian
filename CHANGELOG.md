@@ -47,6 +47,9 @@ implementation record for older releases.
 - The Bases Duration disagreement cites only the recorded evidence (the 1.9.3
   changelog and the pinned upstream skill), with its local fallback hashes
   re-pinned. `scripts/evaluate-prompts.py` is executable like its siblings.
+- A timed-out Obsidian CLI probe falls back to the filesystem on hosts without
+  `os.killpg`, and lint names the error code and capacity recovery when a
+  provenance ledger exceeds its limit.
 - The heading scan no longer crashes on a hash followed by inline code or on
   inline code containing Unicode line separators. Setext headings after
   non-paragraph container lines, lazy quote continuation, tab-indented hashes
