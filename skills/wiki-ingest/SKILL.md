@@ -146,8 +146,10 @@ A recoverable storage bundle can still omit required knowledge outcomes; apply
 only when both pass. The default active catalog is `wiki/index.md`. For a
 methodology MOC, include `workflow: {"catalogs": ["wiki/path/to/MOC.md"]}` in
 the bundle, with that catalog's expected hash and write. A MOC created in
-the same bundle must be linked from `wiki/index.md` or an existing declared
-catalog. Log and hot-cache writes remain required; keep the hot cache at most
+the same bundle must be linked from an active catalog write that is also
+declared in `workflow.catalogs`: list `wiki/index.md` beside the new MOC, or
+link it from an existing declared MOC. An undeclared index write does not
+count. Log and hot-cache writes remain required; keep the hot cache at most
 500 words and 32 KiB. See the
 [workflow acceptance guide](../../docs/workflow-acceptance.md).
 

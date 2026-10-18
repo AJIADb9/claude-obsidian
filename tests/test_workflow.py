@@ -816,6 +816,50 @@ class WorkflowTests(unittest.TestCase):
         report = inspect_workflow(self.vault, bundle)
         self.assertTrue(report['workflow_complete'], report['workflow_findings'])
 
+    def test_undeclared_index_write_does_not_activate_a_new_moc(self):
+        # Reachability counts only declared catalogs; the guides say so.
+        bundle = self.bundle(catalog='wiki/mocs/New.md')
+        bundle['writes'].append({'path': 'wiki/index.md', 'mode': 'create', 'content': '# Index\n\n[[wiki/mocs/New]]\n'})
+        bundle['expected_hashes']['wiki/index.md'] = None
+        report = inspect_workflow(self.vault, bundle)
+        self.assertIn(('INACTIVE_CATALOG', 'wiki/mocs/New.md'), [
+            (x['code'], x['path']) for x in report['workflow_findings']])
+        for guide in ('docs/workflow-acceptance.md', 'skills/save/SKILL.md', 'skills/wiki-ingest/SKILL.md'):
+            text = ' '.join((ROOT / guide).read_text(encoding='utf-8').split())
+            self.assertNotIn('must be linked from `wiki/index.md` or an existing declared', text, guide)
+            self.assertIn('declared in `workflow.catalogs`', text, guide)
+
+    def test_large_catalog_is_parsed_once_for_many_selected_pages(self):
+        import time
+        from unittest import mock
+        from claude_obsidian import workflow as workflow_module
+
+        pages = [f'wiki/concepts/Page {index}.md' for index in range(20)]
+        filler = ''.join(f'- [[wiki/archive/Old {index}]] and [old](archive/Old%20{index}.md)\n'
+                         for index in range(16_000))
+        links = ''.join(f'- [[{page[:-3]}]]\n' for page in pages[:9])
+        links += ''.join(f'- [p]({page[5:].replace(" ", "%20")})\n' for page in pages[9:18])
+        writes = [{'path': page, 'mode': 'create', 'content': '# Page\n\nText.\n'} for page in pages]
+        writes += [
+            {'path': 'wiki/index.md', 'mode': 'create', 'content': '# Index\n\n' + filler + links + '[[wiki/mocs/New]]\n'},
+            {'path': 'wiki/mocs/New.md', 'mode': 'create', 'content': '# New\n'},
+            {'path': 'wiki/log.md', 'mode': 'create', 'content': '## [2026-10-17] save | Pages\n\nSaved pages.\n'},
+            {'path': 'wiki/hot.md', 'mode': 'create', 'content': '# Recent\n\nSaved pages.\n'},
+        ]
+        bundle = {'schema': BUNDLE_SCHEMA, 'operation_id': 'workflow-many', 'operation_type': 'save',
+                  'workflow': {'catalogs': ['wiki/index.md', 'wiki/mocs/New.md']},
+                  'expected_hashes': {w['path']: None for w in writes}, 'writes': writes}
+        self.assertGreater(len(writes[20]['content']), 800_000)
+        original = workflow_module._navigation_sources
+        with mock.patch.object(workflow_module, '_navigation_sources', side_effect=original) as parsed:
+            started = time.perf_counter()
+            report = inspect_workflow(self.vault, bundle)
+            elapsed = time.perf_counter() - started
+        self.assertEqual(sorted(('MISSING_CATALOG_REFERENCE', page) for page in pages[18:]),
+                         sorted((x['code'], x['path']) for x in report['workflow_findings']))
+        self.assertLessEqual(parsed.call_count, 2)
+        self.assertLess(elapsed, 10.0)
+
     def ingest_bundle(self):
         bundle = self.bundle()
         bundle['operation_type'] = 'ingest'

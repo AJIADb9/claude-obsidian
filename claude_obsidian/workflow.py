@@ -202,18 +202,17 @@ def _navigation_sources(text: str) -> tuple[str, tuple[str, ...]]:
     return body, tuple(properties)
 
 
-def _links_to(text: str, page: str, catalog: str) -> bool:
-    """Require unambiguous path-qualified navigation for selected pages."""
+def _catalog_links(text: str, catalog: str) -> tuple[frozenset[str], frozenset[str]]:
+    """Parse one catalog's navigation once: wikilink targets and resolved paths.
+
+    Wikilink targets keep their written form; relative Markdown destinations
+    are normalized against the catalog directory and never escape the vault.
+    """
     # Exclude comments/examples. Active flat metadata links remain candidates.
     masked, property_values = _navigation_sources(text)
-    candidates = {page, page.removesuffix('.md'), page.removeprefix('wiki/'), page.removeprefix('wiki/').removesuffix('.md')}
-    if PurePosixPath(page).parent == PurePosixPath(catalog).parent:
-        candidates.update({PurePosixPath(page).name, PurePosixPath(page).stem})
-    for source in (masked, *property_values):
-        for match in _iter_wiki_links(source):
-            target = match.group(1).split('|', 1)[0].split('#', 1)[0].strip()
-            if target in candidates:
-                return True
+    wikilinks = {match.group(1).split('|', 1)[0].split('#', 1)[0].strip()
+                 for source in (masked, *property_values) for match in _iter_wiki_links(source)}
+    resolved: set[str] = set()
     for match in iter_markdown_links(masked):
         if match.embed or any(ord(c) < 32 for c in match.destination):
             continue
@@ -237,9 +236,19 @@ def _links_to(text: str, page: str, catalog: str) -> bool:
                 pieces.pop()
             elif part not in {'', '.'}:
                 pieces.append(part)
-        if not escaped and '/'.join(pieces) in {page, page.removesuffix('.md')}:
-            return True
-    return False
+        if not escaped:
+            resolved.add('/'.join(pieces))
+    return frozenset(wikilinks), frozenset(resolved)
+
+
+def _links_to(text: str, page: str, catalog: str,
+              links: tuple[frozenset[str], frozenset[str]] | None = None) -> bool:
+    """Require unambiguous path-qualified navigation for selected pages."""
+    wikilinks, resolved = _catalog_links(text, catalog) if links is None else links
+    candidates = {page, page.removesuffix('.md'), page.removeprefix('wiki/'), page.removeprefix('wiki/').removesuffix('.md')}
+    if PurePosixPath(page).parent == PurePosixPath(catalog).parent:
+        candidates.update({PurePosixPath(page).name, PurePosixPath(page).stem})
+    return bool(candidates & wikilinks) or bool({page, page.removesuffix('.md')} & resolved)
 
 
 def inspect_workflow(vault: Path | str, bundle_or_path: Mapping[str, Any] | Path | str, *, _completed_plan: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -263,6 +272,14 @@ def inspect_workflow(vault: Path | str, bundle_or_path: Mapping[str, Any] | Path
         fail('INVALID_CATALOGS', '', 'catalogs must be 1 to 32 distinct canonical wiki Markdown paths')
         catalogs = []
     if raw_writes and operation in SUPPORTED_WORKFLOWS:
+        # Each catalog is parsed once per inspection, however many pages it serves.
+        catalog_links: dict[str, tuple[frozenset[str], frozenset[str]]] = {}
+
+        def links_to(catalog: str, page: str) -> bool:
+            if catalog not in catalog_links:
+                catalog_links[catalog] = _catalog_links(writes[catalog].get('content', ''), catalog)
+            return _links_to('', page, catalog, catalog_links[catalog])
+
         if not any(path in writes for path in catalogs):
             fail('MISSING_CATALOG_WRITE', '', 'named workflow requires a hash-bound declared active catalog write')
         # An active catalog is the root index or a page that already exists
@@ -273,7 +290,7 @@ def inspect_workflow(vault: Path | str, bundle_or_path: Mapping[str, Any] | Path
                   and (p == _DEFAULT_CATALOG or writes[p].get('mode') == 'replace')]
         for path in catalogs:
             if path in writes and path not in active and not any(
-                    _links_to(writes[a].get('content', ''), path, a) for a in active):
+                    links_to(a, path) for a in active):
                 fail('INACTIVE_CATALOG', path, 'a new catalog needs a path-qualified link from wiki/index.md or an existing declared catalog')
         for required in ('wiki/log.md', 'wiki/hot.md'):
             if required not in writes:
@@ -322,7 +339,7 @@ def inspect_workflow(vault: Path | str, bundle_or_path: Mapping[str, Any] | Path
             if page not in selected:
                 fail('INVALID_SELECTED_NOTE', page, 'selected canonical notes must use visible wiki Markdown paths')
         for page in selected:
-            if not any(p in writes and _links_to(writes[p].get('content', ''), page, p) for p in catalogs):
+            if not any(p in writes and links_to(p, page) for p in catalogs):
                 fail('MISSING_CATALOG_REFERENCE', page, 'each selected canonical page needs a path-qualified link in a catalog write from workflow.catalogs')
         if operation == 'save' and not selected:
             fail('MISSING_SELECTED_NOTE', '', 'save must include the selected canonical note')
