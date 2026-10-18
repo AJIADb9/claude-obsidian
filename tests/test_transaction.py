@@ -8,6 +8,7 @@ import json
 import multiprocessing
 import os
 import socket
+import subprocess
 import sys
 import tempfile
 import time
@@ -3181,8 +3182,243 @@ def test_ten_concurrent_address_transactions_remain_consistent() -> None:
             assert f"address: {address}" in page
 
 
+def test_external_change_to_an_unapplied_target_rolls_back_and_unblocks() -> None:
+    for change in ("delete", "edit"):
+        with tempfile.TemporaryDirectory() as td:
+            vault = make_vault(Path(td) / "vault")
+            for leaf in ("A", "B", "C"):
+                (vault / f"wiki/{leaf}.md").write_text(f"old {leaf}\n", encoding="utf-8")
+            operation = bundle(
+                f"unapplied-{change}",
+                [{"path": f"wiki/{leaf}.md", "mode": "replace", "content": f"new {leaf}\n"} for leaf in ("A", "B", "C")],
+                {f"wiki/{leaf}.md": sha256_file(vault / f"wiki/{leaf}.md") for leaf in ("A", "B", "C")},
+            )
+            approval = inspect_bundle(vault, operation)["approval_sha256"]
+            target = vault / "wiki/B.md"
+
+            def external_editor(path: str, index: int) -> None:
+                if index == 1:
+                    if change == "delete":
+                        target.unlink()
+                    else:
+                        target.write_text("user edit\n", encoding="utf-8")
+                    # A later untouched target also changes; it was never written.
+                    (vault / "wiki/C.md").write_text("later user edit\n", encoding="utf-8")
+
+            try:
+                apply_bundle(vault, operation, approved_plan_sha256=approval, progress=external_editor)
+            except TransactionConflict as exc:
+                assert exc.code == "EXPECTED_HASH_MISMATCH", (change, exc.code, str(exc))
+            else:
+                raise AssertionError("an external change before apply must conflict")
+            assert (vault / "wiki/A.md").read_text(encoding="utf-8") == "old A\n"
+            if change == "delete":
+                assert not target.exists(), "an externally deleted target must not be resurrected"
+            else:
+                assert target.read_text(encoding="utf-8") == "user edit\n"
+            assert (vault / "wiki/C.md").read_text(encoding="utf-8") == "later user edit\n"
+            journal = json.loads(
+                (vault / f".vault-meta/transactions/unapplied-{change}/journal.json").read_text()
+            )
+            assert journal["state"] == "rolled-back", journal
+            assert journal["applied"] == ["wiki/A.md"]
+            assert "recovery_failures" not in journal
+            unrelated = bundle("unrelated-after-conflict", [{"path": "wiki/D.md", "mode": "create", "content": "D\n"}])
+            assert apply_bundle(vault, unrelated)["status"] == "complete"
+            assert (vault / "wiki/D.md").read_text(encoding="utf-8") == "D\n"
+
+
+def test_recovery_skips_journal_writes_that_never_started() -> None:
+    for state in ("applying", "prepared"):
+        with tempfile.TemporaryDirectory() as td:
+            vault = make_vault(Path(td) / "vault")
+            transaction = vault / ".vault-meta/transactions/never-started"
+            backups = transaction / "backups"
+            backups.mkdir(parents=True)
+            writes = []
+            for index, leaf in enumerate(("A", "B", "C")):
+                old = f"old {leaf}\n".encode()
+                (backups / f"{index:04d}.original").write_bytes(old)
+                writes.append({
+                    "path": f"wiki/{leaf}.md",
+                    "mode": "replace",
+                    "new_sha256": hashlib.sha256(f"new {leaf}\n".encode()).hexdigest(),
+                    "original_sha256": hashlib.sha256(old).hexdigest(),
+                    "original_mode": 0o644,
+                    "new_mode": 0o644,
+                    "backup": f"{index:04d}.original",
+                })
+            # A applied, B in flight (written, not yet journaled), C never started
+            # and later deleted by an external editor.
+            (vault / "wiki/A.md").write_text("new A\n" if state == "applying" else "old A\n")
+            (vault / "wiki/B.md").write_text("new B\n" if state == "applying" else "user B\n")
+            journal = {
+                "schema": "claude-obsidian.transaction-journal.v1",
+                "operation_id": "never-started",
+                "operation_type": "generic",
+                "state": state,
+                "writes": writes,
+                "applied": ["wiki/A.md"] if state == "applying" else [],
+            }
+            (transaction / "journal.json").write_text(json.dumps(journal), encoding="utf-8")
+            with MutationLock(vault) as mutation_lock:
+                assert recover_incomplete(vault, mutation_lock=mutation_lock) == ["never-started"]
+            assert (vault / "wiki/A.md").read_text() == "old A\n"
+            assert (vault / "wiki/B.md").read_text() == ("old B\n" if state == "applying" else "user B\n")
+            assert not (vault / "wiki/C.md").exists()
+            retained = json.loads((transaction / "journal.json").read_text(encoding="utf-8"))
+            assert retained["state"] == "rolled-back", retained
+
+
+def _replayable_operation(vault: Path, operation_id: str) -> tuple[dict, str]:
+    (vault / "wiki/A.md").write_text("old A\n", encoding="utf-8")
+    operation = bundle(
+        operation_id,
+        [
+            {"path": "wiki/A.md", "mode": "replace", "content": "new A\n"},
+            {"path": "wiki/B.md", "mode": "create", "content": "B\n"},
+        ],
+        {"wiki/A.md": sha256_file(vault / "wiki/A.md")},
+    )
+    approval = inspect_bundle(vault, operation)["approval_sha256"]
+    apply_bundle(vault, operation, approved_plan_sha256=approval)
+    return operation, approval
+
+
+def test_malformed_replay_and_recovery_state_are_controlled_errors() -> None:
+    deep = "[" * 200_000 + "]" * 200_000
+
+    def edit_json(name: str, change):
+        def apply(directory: Path) -> None:
+            document = json.loads((directory / name).read_text())
+            change(document)
+            (directory / name).write_text(json.dumps(document))
+        return apply
+
+    replay_cases = {
+        "deep-result": lambda directory: (directory / "changed-paths.json").write_text(deep),
+        "deep-journal": lambda directory: (directory / "journal.json").write_text(deep),
+        "deep-bundle": lambda directory: (directory / "bundle.json").write_text(deep),
+        "journal-mode-list": edit_json("journal.json", lambda d: d["writes"][0].__setitem__("mode", ["replace"])),
+        "journal-state-prepared": edit_json("journal.json", lambda d: d.__setitem__("state", "prepared")),
+    }
+    for name, mutate in replay_cases.items():
+        with tempfile.TemporaryDirectory() as td:
+            vault = make_vault(Path(td) / "vault")
+            operation, approval = _replayable_operation(vault, "malformed-replay")
+            mutate(vault / ".vault-meta/transactions/malformed-replay")
+            before = {p.relative_to(vault).as_posix(): p.read_bytes() for p in vault.rglob("*") if p.is_file()}
+            try:
+                apply_bundle(vault, operation, approved_plan_sha256=approval)
+            except TransactionError as exc:
+                assert exc.code in {"CORRUPT_RESULT", "CORRUPT_RUNTIME_STATE", "CORRUPT_JOURNAL"}, (name, exc.code)
+            else:
+                raise AssertionError(f"malformed replay state was accepted: {name}")
+            after = {p.relative_to(vault).as_posix(): p.read_bytes() for p in vault.rglob("*") if p.is_file()}
+            assert before == after, name
+            assert not (vault / ".vault-meta/mutation.lock").exists(), name
+
+    recovery_cases = {
+        "operation-type-list": lambda d: d.__setitem__("operation_type", ["generic"]),
+        "mode-list": lambda d: d["writes"][0].__setitem__("mode", ["replace"]),
+    }
+    for name, change in recovery_cases.items():
+        with tempfile.TemporaryDirectory() as td:
+            vault = make_vault(Path(td) / "vault")
+            _replayable_operation(vault, "malformed-recovery")
+            directory = vault / ".vault-meta/transactions/malformed-recovery"
+            (directory / "changed-paths.json").unlink()
+            journal = json.loads((directory / "journal.json").read_text())
+            journal["state"] = "applying"
+            change(journal)
+            (directory / "journal.json").write_text(json.dumps(journal))
+            try:
+                recover_incomplete(vault)
+            except TransactionRecoveryError as exc:
+                assert exc.code == "CORRUPT_JOURNAL", (name, exc.code)
+            else:
+                raise AssertionError(f"malformed recovery journal was accepted: {name}")
+            assert (vault / "wiki/A.md").read_text() == "new A\n"
+
+    with tempfile.TemporaryDirectory() as td:
+        vault = make_vault(Path(td) / "vault")
+        path = Path(td) / "deep.json"
+        path.write_text(deep)
+        listed = Path(td) / "listed.json"
+        listed.write_text(json.dumps(bundle("listed-mode", [{"path": "wiki/x.md", "mode": ["create"], "content": "x\n"}])))
+        for source, code in ((path, "INVALID_BUNDLE"), (listed, "INVALID_WRITE_MODE")):
+            for action in (inspect_bundle, apply_bundle):
+                try:
+                    action(vault, source)
+                except TransactionValidationError as exc:
+                    assert exc.code == code, (source.name, exc.code)
+                else:
+                    raise AssertionError(f"malformed bundle was accepted: {source.name}")
+        assert not (vault / "wiki/x.md").exists()
+        assert not (vault / ".vault-meta/transactions/listed-mode").exists()
+        assert not (vault / ".vault-meta/mutation.lock").exists()
+
+
+def _run_bounded(program: str, *args: str) -> subprocess.CompletedProcess:
+    """Run a probe in a child so a blocking FIFO open fails the test, not hangs it."""
+
+    try:
+        return subprocess.run(
+            [sys.executable, "-B", "-c", program, *args],
+            cwd=ROOT, capture_output=True, text=True, timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AssertionError(f"probe blocked: {program[:200]}") from exc
+
+
+def test_fifo_targets_and_retained_paths_fail_without_blocking() -> None:
+    if not hasattr(os, "mkfifo"):
+        return
+    with tempfile.TemporaryDirectory() as td:
+        vault = make_vault(Path(td) / "vault")
+        os.mkfifo(vault / "wiki/Pipe.md")
+        program = """import sys
+from pathlib import Path
+from claude_obsidian.transaction import TransactionError, _safe_file_state, read_vault_regular, inspect_bundle, BUNDLE_SCHEMA
+vault = Path(sys.argv[1])
+for probe in (lambda: read_vault_regular(vault, 'wiki/Pipe.md'), lambda: _safe_file_state(vault, 'wiki/Pipe.md'),
+              lambda: inspect_bundle(vault, {'schema': BUNDLE_SCHEMA, 'operation_id': 'fifo-target', 'operation_type': 'generic',
+                                             'expected_hashes': {'wiki/Pipe.md': '0' * 64},
+                                             'writes': [{'path': 'wiki/Pipe.md', 'mode': 'replace', 'content': 'x\\n'}]})):
+    try:
+        probe()
+    except TransactionError as exc:
+        print(exc.code)
+    else:
+        print('ACCEPTED')
+"""
+        run = _run_bounded(program, str(vault))
+        assert run.returncode == 0, run.stderr
+        assert run.stdout.split() == ["UNSAFE_VAULT_PATH"] * 3, run.stdout
+
+    with tempfile.TemporaryDirectory() as td:
+        vault = make_vault(Path(td) / "vault")
+        operation, approval = _replayable_operation(vault, "fifo-replay")
+        (vault / "wiki/B.md").unlink()
+        os.mkfifo(vault / "wiki/B.md")
+        source = Path(td) / "bundle.json"
+        source.write_text(json.dumps(operation))
+        run = _run_bounded(
+            "import runpy, sys; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')",
+            str(ROOT / "scripts/claude-obsidian.py"), "transaction", "apply", str(source),
+            "--vault", str(vault), "--approved-plan-sha256", approval,
+        )
+        assert run.returncode == 75, (run.returncode, run.stderr)
+        assert "OPERATION_RESULT_DRIFT" in run.stderr and "Traceback" not in run.stderr, run.stderr
+        assert not (vault / ".vault-meta/mutation.lock").exists()
+
+
 def main() -> None:
     test_invalid_operation_types_fail_before_runtime_state()
+    test_external_change_to_an_unapplied_target_rolls_back_and_unblocks()
+    test_recovery_skips_journal_writes_that_never_started()
+    test_malformed_replay_and_recovery_state_are_controlled_errors()
+    test_fifo_targets_and_retained_paths_fail_without_blocking()
     test_canvas_structures_and_reference_paths_are_validated_before_writes()
     test_base_checks_report_the_supported_validation_depth()
     test_legacy_canvas_content_stays_recoverable()

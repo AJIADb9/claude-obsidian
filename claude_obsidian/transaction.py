@@ -195,12 +195,17 @@ def _strict_json_loads(value: str) -> Any:
     def reject_constant(constant: str) -> None:
         raise ValueError(f"non-finite JSON number is not permitted: {constant}")
 
-    return json.loads(
-        value,
-        object_pairs_hook=_reject_duplicate_json_keys,
-        parse_constant=reject_constant,
-        parse_float=parse_finite_json_float,
-    )
+    try:
+        return json.loads(
+            value,
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=reject_constant,
+            parse_float=parse_finite_json_float,
+        )
+    except RecursionError as exc:
+        # Deeply nested input exhausts the decoder stack. Report it as the
+        # malformed JSON it is so every caller's ValueError path stays bounded.
+        raise ValueError("JSON nesting exceeds the supported depth") from exc
 
 
 def _portable_name_key(value: str) -> str:
@@ -2693,7 +2698,13 @@ def _load_bundle(
         raise TransactionValidationError(
             "INVALID_BUNDLE", "bundle root must be an object"
         )
-    if len(_json_bytes(bundle)) > MAX_TRANSACTION_BUNDLE_BYTES:
+    try:
+        canonical_size = len(_json_bytes(bundle))
+    except (RecursionError, ValueError) as exc:
+        raise TransactionValidationError(
+            "INVALID_BUNDLE", "bundle nesting exceeds the supported depth"
+        ) from exc
+    if canonical_size > MAX_TRANSACTION_BUNDLE_BYTES:
         raise TransactionValidationError(
             "INVALID_BUNDLE",
             "bundle exceeds the canonical serialized-size limit",
@@ -3500,7 +3511,7 @@ def _prepare_writes(
                 f"every write requires an expected_hashes entry: {normalized}",
             )
         mode = raw.get("mode")
-        if mode not in {"create", "replace"}:
+        if not isinstance(mode, str) or mode not in {"create", "replace"}:
             raise TransactionValidationError(
                 "INVALID_WRITE_MODE", f"{relative} mode must be create or replace"
             )
@@ -3956,6 +3967,7 @@ def _validated_recovery_writes(
     if (
         not isinstance(writes, list)
         or not writes
+        or not isinstance(operation_type, str)
         or operation_type not in OPERATION_TYPES
     ):
         raise TransactionRecoveryError(
@@ -3997,7 +4009,7 @@ def _validated_recovery_writes(
                 f"journal write {index} has an invalid backup binding",
             )
         mode = entry.get("mode")
-        if mode not in {"create", "replace"}:
+        if not isinstance(mode, str) or mode not in {"create", "replace"}:
             raise TransactionRecoveryError(
                 "CORRUPT_JOURNAL", f"journal write {index} has an invalid mode"
             )
@@ -4151,7 +4163,17 @@ def _restore_journal(
     *,
     root_fd: int,
     meta_fd: int,
+    pending_write_started: bool = True,
 ) -> None:
+    """Restore every journal write that may have reached the vault.
+
+    Writes run in journal order and each is journaled right after it lands, so
+    only the ``applied`` prefix plus at most the next entry can have changed a
+    target. Later entries never started; an external edit or delete of one is
+    not this transaction's to undo or report. ``pending_write_started`` is
+    false only when the in-process caller knows the next write never began.
+    Crash recovery keeps the default and treats that entry as in flight.
+    """
     writes = _validated_recovery_writes(
         vault_root,
         transaction,
@@ -4159,6 +4181,19 @@ def _restore_journal(
         root_fd=root_fd,
         meta_fd=meta_fd,
     )
+    applied = journal.get("applied")
+    if journal.get("state") == "prepared":
+        # The journal moves to "applying" before the first vault write.
+        reachable = 0
+    elif (
+        isinstance(applied, list)
+        and len(applied) <= len(writes)
+        and applied == [entry.relative_path for entry in writes[: len(applied)]]
+    ):
+        reachable = min(len(writes), len(applied) + int(pending_write_started))
+    else:
+        # Unrecognized progress evidence: assume every write may have landed.
+        reachable = len(writes)
     failures: list[str] = []
 
     def record_failure(relative: str, detail: object) -> None:
@@ -4166,7 +4201,7 @@ def _restore_journal(
         # preflighted before mutation. Paths are already byte-bounded.
         failures.append(f"{relative}: {str(detail)[:1024]}")
 
-    for entry in reversed(writes):
+    for entry in reversed(writes[:reachable]):
         try:
             relative = entry.relative_path
             original_hash = entry.original_sha256
@@ -4362,7 +4397,9 @@ def _validate_replay_evidence(
         or journal.get("operation_id") != operation_id
         or journal.get("operation_type") != operation_type
         or not isinstance(journal.get("state"), str)
-        or journal.get("state") not in {"prepared", "applying", "complete"}
+        # A result is written only after every write was applied, so a
+        # retained "prepared" journal cannot belong to a completed operation.
+        or journal.get("state") not in {"applying", "complete"}
         or result.get("status") != "complete"
         or result.get("operation_id") != operation_id
         or result.get("operation_type") != operation_type
@@ -4924,6 +4961,7 @@ def apply_bundle(
                 operation.write_json("journal.json", journal)
                 _assert_transaction_namespaces(mutation_lock, runtime, operation)
 
+                pending_write_started = False
                 try:
                     _assert_read_preconditions(
                         vault,
@@ -4932,6 +4970,7 @@ def apply_bundle(
                         meta_fd=runtime.meta_fd,
                     )
                     for index, write in enumerate(prepared, start=1):
+                        pending_write_started = False
                         _assert_transaction_namespaces(
                             mutation_lock, runtime, operation
                         )
@@ -4957,6 +4996,7 @@ def apply_bundle(
                             root_fd=runtime.root_fd,
                             meta_fd=runtime.meta_fd,
                         )
+                        pending_write_started = True
                         _atomic_vault_write(
                             vault,
                             write.relative_path,
@@ -4966,6 +5006,7 @@ def apply_bundle(
                             meta_fd=runtime.meta_fd,
                         )
                         journal["applied"].append(write.relative_path)
+                        pending_write_started = False
                         _assert_no_existing_portable_alias(
                             vault,
                             write.relative_path,
@@ -4990,6 +5031,7 @@ def apply_bundle(
                         journal,
                         root_fd=runtime.root_fd,
                         meta_fd=runtime.meta_fd,
+                        pending_write_started=pending_write_started,
                     )
                     raise
 

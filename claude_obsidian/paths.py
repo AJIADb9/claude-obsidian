@@ -88,12 +88,17 @@ def read_open_flags() -> int:
 
     ``O_BINARY`` matters: the Windows CRT defaults descriptors to text mode,
     which strips ``\\r\\n`` during reads and silently corrupts content hashes.
+    ``O_NONBLOCK`` keeps a FIFO or device planted at a regular-file path from
+    blocking the open; every caller ``fstat``-requires a regular file before
+    reading, and the flag does not change reads of regular files. Windows has
+    no such flag and no FIFO namespace at these paths.
     """
 
     return (
         os.O_RDONLY
         | getattr(os, "O_CLOEXEC", 0)
         | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
         | getattr(os, "O_BINARY", 0)
     )
 
