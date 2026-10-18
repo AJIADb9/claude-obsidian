@@ -3228,6 +3228,76 @@ def test_external_change_to_an_unapplied_target_rolls_back_and_unblocks() -> Non
             assert (vault / "wiki/D.md").read_text(encoding="utf-8") == "D\n"
 
 
+def test_never_started_write_stays_out_of_failed_or_interrupted_rollback() -> None:
+    # A rollback that fails, or a process that dies before rolling back, must
+    # not later widen recovery to a target whose write never began.
+    for scenario in ("rollback-failed", "identical-create", "crash-before-rollback"):
+        with tempfile.TemporaryDirectory() as td:
+            vault = make_vault(Path(td) / "vault")
+            (vault / "wiki/A.md").write_text("old A\n", encoding="utf-8")
+            if scenario == "identical-create":
+                writes = [
+                    {"path": "wiki/A.md", "mode": "replace", "content": "new A\n"},
+                    {"path": "wiki/B.md", "mode": "create", "content": "shared B\n"},
+                ]
+                expected = {"wiki/A.md": sha256_file(vault / "wiki/A.md"), "wiki/B.md": None}
+            else:
+                (vault / "wiki/B.md").write_text("old B\n", encoding="utf-8")
+                writes = [
+                    {"path": f"wiki/{leaf}.md", "mode": "replace", "content": f"new {leaf}\n"}
+                    for leaf in ("A", "B")
+                ]
+                expected = {f"wiki/{leaf}.md": sha256_file(vault / f"wiki/{leaf}.md") for leaf in ("A", "B")}
+            operation = bundle(f"bounded-{scenario}", writes, expected)
+            external_b = "shared B\n" if scenario == "identical-create" else "user B\n"
+            if scenario == "crash-before-rollback":
+                bundle_path = Path(td) / "bundle.json"
+                bundle_path.write_text(json.dumps(operation), encoding="utf-8")
+                child = (
+                    "import json, os, sys\n"
+                    "from pathlib import Path\n"
+                    "sys.path.insert(0, sys.argv[1])\n"
+                    "import claude_obsidian.transaction as t\n"
+                    "vault = Path(sys.argv[2])\n"
+                    "t._restore_journal = lambda *a, **k: os._exit(9)\n"
+                    "def edit(path, index):\n"
+                    "    if index == 1:\n"
+                    "        (vault / 'wiki/B.md').write_text('user B\\n', encoding='utf-8')\n"
+                    "t.apply_bundle(vault, json.loads(Path(sys.argv[3]).read_text()), progress=edit)\n"
+                )
+                completed = subprocess.run(
+                    [sys.executable, "-B", "-c", child, str(ROOT), str(vault), str(bundle_path)],
+                    check=False,
+                )
+                assert completed.returncode == 9, completed.returncode
+                with MutationLock(vault, timeout=2, force_stale_lock=True) as lock:
+                    assert recover_incomplete(vault, mutation_lock=lock) == [operation["operation_id"]]
+            else:
+                def external_editor(path: str, index: int) -> None:
+                    if index == 1:
+                        (vault / "wiki/A.md").write_text("user A\n", encoding="utf-8")
+                        (vault / "wiki/B.md").write_text(external_b, encoding="utf-8")
+
+                try:
+                    apply_bundle(vault, operation, progress=external_editor)
+                except TransactionRecoveryError as exc:
+                    assert exc.code == "ROLLBACK_FAILED", exc.code
+                    assert "wiki/B.md" not in str(exc), str(exc)
+                else:
+                    raise AssertionError("an edited applied target must fail rollback")
+                # The user resolves the reported target and keeps their own B.
+                (vault / "wiki/A.md").write_text("old A\n", encoding="utf-8")
+                assert recover_incomplete(vault) == [operation["operation_id"]]
+            assert (vault / "wiki/A.md").read_text(encoding="utf-8") == "old A\n"
+            assert (vault / "wiki/B.md").read_text(encoding="utf-8") == external_b, scenario
+            journal = json.loads(
+                (vault / f".vault-meta/transactions/{operation['operation_id']}/journal.json").read_text()
+            )
+            assert journal["state"] == "rolled-back", journal
+            assert journal["in_flight"] is None, journal
+            unrelated = bundle(f"after-{scenario}", [{"path": "wiki/D.md", "mode": "create", "content": "D\n"}])
+            assert apply_bundle(vault, unrelated)["status"] == "complete"
+
 def test_recovery_skips_journal_writes_that_never_started() -> None:
     for state in ("applying", "prepared"):
         with tempfile.TemporaryDirectory() as td:
@@ -3417,6 +3487,7 @@ def main() -> None:
     test_invalid_operation_types_fail_before_runtime_state()
     test_external_change_to_an_unapplied_target_rolls_back_and_unblocks()
     test_recovery_skips_journal_writes_that_never_started()
+    test_never_started_write_stays_out_of_failed_or_interrupted_rollback()
     test_malformed_replay_and_recovery_state_are_controlled_errors()
     test_fifo_targets_and_retained_paths_fail_without_blocking()
     test_canvas_structures_and_reference_paths_are_validated_before_writes()

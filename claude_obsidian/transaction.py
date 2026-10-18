@@ -3875,6 +3875,7 @@ def _journal_for(
             for write in writes
         ],
         "applied": [],
+        "in_flight": None,
     }
 
 
@@ -3923,6 +3924,9 @@ def _validate_journal_envelope(
     probe["applied"] = [write.relative_path for write in prepared]
     probe["completed_epoch"] = 9_999_999_999.999999
     probe["rolled_back_epoch"] = 9_999_999_999.999999
+    probe["in_flight"] = max(
+        (write.relative_path for write in prepared), key=len, default=None
+    )
     probe["recovery_failures"] = [
         f"{write.relative_path}: " + ("x" * 1024) for write in prepared
     ]
@@ -4156,6 +4160,18 @@ def _validated_recovery_writes(
     return validated
 
 
+def _recognized_in_flight(
+    journal: Mapping[str, Any], writes: list[Any], applied_count: int
+) -> bool:
+    """Accept a missing, cleared, or next-entry ``in_flight`` journal marker."""
+    if "in_flight" not in journal or journal["in_flight"] is None:
+        return True
+    return (
+        applied_count < len(writes)
+        and journal["in_flight"] == writes[applied_count].relative_path
+    )
+
+
 def _restore_journal(
     vault_root: Path,
     transaction: _OperationStore,
@@ -4172,7 +4188,10 @@ def _restore_journal(
     target. Later entries never started; an external edit or delete of one is
     not this transaction's to undo or report. ``pending_write_started`` is
     false only when the in-process caller knows the next write never began.
-    Crash recovery keeps the default and treats that entry as in flight.
+    The journal also records ``in_flight`` immediately before each vault write
+    and clears it once the write is journaled, so a rollback that fails or is
+    interrupted, and later crash recovery, keep the same bound. A journal
+    without that field predates it and treats the next entry as in flight.
     """
     writes = _validated_recovery_writes(
         vault_root,
@@ -4189,8 +4208,10 @@ def _restore_journal(
         isinstance(applied, list)
         and len(applied) <= len(writes)
         and applied == [entry.relative_path for entry in writes[: len(applied)]]
+        and _recognized_in_flight(journal, writes, len(applied))
     ):
-        reachable = min(len(writes), len(applied) + int(pending_write_started))
+        started = pending_write_started and journal.get("in_flight", True) is not None
+        reachable = min(len(writes), len(applied) + int(started))
     else:
         # Unrecognized progress evidence: assume every write may have landed.
         reachable = len(writes)
@@ -4996,6 +5017,10 @@ def apply_bundle(
                             root_fd=runtime.root_fd,
                             meta_fd=runtime.meta_fd,
                         )
+                        # Journal the boundary first so recovery never treats
+                        # a write that did not begin as one that may have landed.
+                        journal["in_flight"] = write.relative_path
+                        operation.write_json("journal.json", journal)
                         pending_write_started = True
                         _atomic_vault_write(
                             vault,
@@ -5006,6 +5031,7 @@ def apply_bundle(
                             meta_fd=runtime.meta_fd,
                         )
                         journal["applied"].append(write.relative_path)
+                        journal["in_flight"] = None
                         pending_write_started = False
                         _assert_no_existing_portable_alias(
                             vault,
