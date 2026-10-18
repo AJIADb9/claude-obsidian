@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from unittest import mock
 
@@ -29,6 +30,10 @@ spec = importlib.util.spec_from_file_location("tc", HELPER)
 tc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tc)
 DIGEST = "sha256:" + "a" * 64
+
+if str(ROOT / "tests") not in sys.path:
+    sys.path.insert(0, str(ROOT / "tests"))
+from test_ollama import FakeOllamaServer, SlowDripServer  # noqa: E402
 
 
 def local_proof(model="m1"):
@@ -935,6 +940,131 @@ def test_peek_proves_local_state_without_writes():
     assert_true("peek reports local proof", json.loads(output.getvalue())["local_model_proved"])
 
 
+FAKE_MODEL = "m1:latest"
+
+
+def _fake_server_vault(directory, pages=4):
+    vault = Path(directory)
+    wiki = vault / "wiki"
+    wiki.mkdir()
+    for index in range(pages):
+        (wiki / f"P{index}.md").write_text(
+            f"---\ntype: concept\n---\nprivate page body {index}\n", encoding="utf-8"
+        )
+    meta = vault / ".vault-meta"
+    meta.mkdir()
+    cache = meta / "tiling-cache.json"
+    prior = {"version": 2, "model": FAKE_MODEL, "digest": DIGEST, "embeddings": {}}
+    cache.write_bytes((json.dumps(prior, indent=2) + "\n").encode("utf-8"))
+    return vault, cache
+
+
+def _run_tiling_against(server_url, vault):
+    """Run the real CLI entry point against a loopback fake server."""
+    original = (
+        tc.VAULT_ROOT,
+        tc.WIKI_DIR,
+        tc.META_DIR,
+        tc.CACHE_PATH,
+        tc.CACHE_LOCK,
+        tc.THRESHOLDS_PATH,
+    )
+    output = io.StringIO()
+    errors = io.StringIO()
+    try:
+        with (
+            mock.patch.dict(os.environ, {"OLLAMA_URL": server_url}),
+            contextlib.redirect_stdout(output),
+            contextlib.redirect_stderr(errors),
+        ):
+            try:
+                result = tc.main(["--vault", str(vault), "--model", FAKE_MODEL])
+            except Exception as exc:  # a traceback is the regression
+                raise Fail(f"FAIL tiling raised {type(exc).__name__}: {exc}") from exc
+    finally:
+        (
+            tc.VAULT_ROOT,
+            tc.WIKI_DIR,
+            tc.META_DIR,
+            tc.CACHE_PATH,
+            tc.CACHE_LOCK,
+            tc.THRESHOLDS_PATH,
+        ) = original
+    return result, output.getvalue(), errors.getvalue()
+
+
+def test_provider_failure_circuit_stops_after_first_page_body():
+    for mode, expected_posts in (("embremote", 1), ("emb500", 1), ("dim", 2)):
+        with tempfile.TemporaryDirectory() as directory, FakeOllamaServer(mode, FAKE_MODEL) as server:
+            vault, cache = _fake_server_vault(directory, pages=4)
+            before = cache.read_bytes()
+            result, report, errors = _run_tiling_against(server.url, vault)
+            posts = server.count("POST", "/api/embeddings")
+            after = cache.read_bytes()
+        assert_eq(f"{mode}: provider failure is incomplete", tc.EXIT_INCOMPLETE, result)
+        assert_eq(f"{mode}: no page body is sent after the first failure", expected_posts, posts)
+        assert_eq(f"{mode}: incomplete run preserves cache bytes", before, after)
+        assert_true(f"{mode}: report is provisional", "status: incomplete" in report)
+        assert_true(f"{mode}: circuit is reported", "provider circuit opened" in errors)
+
+
+def test_duplicate_remote_status_keys_block_every_page_body():
+    with tempfile.TemporaryDirectory() as directory, FakeOllamaServer("dupkey", FAKE_MODEL) as server:
+        vault, cache = _fake_server_vault(directory)
+        before = cache.read_bytes()
+        result, _report, errors = _run_tiling_against(server.url, vault)
+        posts = server.count("POST", "/api/embeddings")
+        shows = server.count("POST", "/api/show")
+        after = cache.read_bytes()
+    assert_eq("duplicate remote key is an unproved local state", tc.EXIT_INCOMPLETE, result)
+    assert_eq("duplicate remote key sends no page body", 0, posts)
+    assert_eq("duplicate remote key stops before model metadata", 0, shows)
+    assert_true("duplicate key is named", "duplicate JSON object key" in errors)
+    assert_eq("duplicate remote key preserves cache", before, after)
+
+
+def test_malformed_http_status_uses_documented_exits():
+    for mode, expected in (("badstatus", tc.EXIT_NO_OLLAMA), ("badproof", tc.EXIT_INCOMPLETE)):
+        with tempfile.TemporaryDirectory() as directory, FakeOllamaServer(mode, FAKE_MODEL) as server:
+            vault, _cache = _fake_server_vault(directory)
+            result, _report, _errors = _run_tiling_against(server.url, vault)
+            posts = server.count("POST", "/api/embeddings")
+        assert_eq(f"{mode}: malformed status line has a controlled exit", expected, result)
+        assert_eq(f"{mode}: malformed status line sends no page body", 0, posts)
+
+
+def test_unrelated_cloud_model_does_not_block_local_tiling():
+    with tempfile.TemporaryDirectory() as directory, FakeOllamaServer("othercloud", FAKE_MODEL) as server:
+        vault, _cache = _fake_server_vault(directory, pages=3)
+        result, report, errors = _run_tiling_against(server.url, vault)
+        posts = server.count("POST", "/api/embeddings")
+    assert_eq("unrelated cloud model leaves local tiling available", tc.EXIT_OK, result)
+    assert_eq("every local page is embedded once", 3, posts)
+    assert_true("complete report", "status: complete" in report)
+    assert_true("no misleading malformed-list message", "malformed" not in errors)
+    with tempfile.TemporaryDirectory() as directory, FakeOllamaServer("selfcloud", FAKE_MODEL) as server:
+        vault, _cache = _fake_server_vault(directory, pages=3)
+        result, _report, errors = _run_tiling_against(server.url, vault)
+        posts = server.count("POST", "/api/embeddings")
+    assert_eq("requested remote model still fails closed", tc.EXIT_INCOMPLETE, result)
+    assert_eq("requested remote model receives no page body", 0, posts)
+    assert_true("remote identity is named accurately", "remote identity" in errors)
+    assert_true("requested remote model is not called malformed", "malformed" not in errors)
+
+
+def test_request_deadline_bounds_slow_drip_transport():
+    with SlowDripServer(phase="body", interval=0.2) as server:
+        started = time.monotonic()
+        try:
+            tc._http_get_json(server.url + "/api/status", 1)
+        except OSError:
+            pass
+        else:
+            raise Fail("FAIL slow-drip response was accepted past the request deadline")
+        elapsed = time.monotonic() - started
+    assert_true(f"slow-drip request stops near its deadline ({elapsed:.1f}s)", elapsed < 3.0)
+
+
 if __name__ == "__main__":
     try:
         test_cosine()
@@ -956,6 +1086,11 @@ if __name__ == "__main__":
         test_empty_and_complete_runs_publish_once()
         test_complete_cached_and_fresh_run_publishes_once()
         test_peek_proves_local_state_without_writes()
+        test_provider_failure_circuit_stops_after_first_page_body()
+        test_duplicate_remote_status_keys_block_every_page_body()
+        test_malformed_http_status_uses_documented_exits()
+        test_unrelated_cloud_model_does_not_block_local_tiling()
+        test_request_deadline_bounds_slow_drip_transport()
     except Fail as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)
