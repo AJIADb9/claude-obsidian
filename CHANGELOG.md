@@ -41,6 +41,12 @@ implementation record for older releases.
   rollback never undoes or reports a write that did not begin. HTTPS provider
   handshakes share the request deadline, and local reserved plugin-name checks
   follow the host's separator rules.
+- Verification runs on every pull request, including PRs stacked on another
+  PR's branch. Dependabot proposes cooled-down, SHA-pinned GitHub Actions
+  updates, and CodeQL scans the Python core and workflows.
+- The Bases Duration disagreement cites only the recorded evidence (the 1.9.3
+  changelog and the pinned upstream skill), with its local fallback hashes
+  re-pinned. `scripts/evaluate-prompts.py` is executable like its siblings.
 - The heading scan no longer crashes on a hash followed by inline code or on
   inline code containing Unicode line separators. Setext headings after
   non-paragraph container lines, lazy quote continuation, tab-indented hashes
