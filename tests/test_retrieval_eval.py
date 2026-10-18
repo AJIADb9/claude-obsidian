@@ -116,7 +116,9 @@ class LabelSafetyTests(unittest.TestCase):
             if hasattr(os, "mkfifo"):
                 fifo = root / "queries.fifo"
                 os.mkfifo(fifo)
-                with self.assertRaises(EvaluationError):
+                # An empty FIFO also fails JSON parsing, so require the
+                # regular-file refusal itself rather than any EvaluationError.
+                with self.assertRaisesRegex(EvaluationError, "expected a regular file"):
                     load_queries(fifo)
 
     def test_missing_index_has_exit_10(self) -> None:

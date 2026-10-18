@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -135,6 +136,22 @@ class PromptEvaluationTests(unittest.TestCase):
                 evaluate_response(
                     self.packet, alias / "response.json", product_root=ROOT
                 )
+
+    def test_non_regular_response_paths_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory).resolve()
+            candidates = [temporary / "response-directory"]
+            candidates[0].mkdir()
+            if hasattr(os, "mkfifo"):
+                candidates.append(temporary / "response.fifo")
+                os.mkfifo(candidates[-1])
+            for candidate in candidates:
+                with self.subTest(path=candidate.name):
+                    with self.assertRaisesRegex(
+                        PromptEvaluationError,
+                        "response must be a regular non-symlink file",
+                    ):
+                        evaluate_response(self.packet, candidate, product_root=ROOT)
 
     def test_invalid_utf8_source_is_mapped_to_evaluation_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
