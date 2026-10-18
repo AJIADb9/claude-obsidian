@@ -28,11 +28,29 @@ python3 "$CORE" capacity compact --vault "$VAULT" \
 
 Keep a complete recoverable vault backup before repair. Review the operation's
 paths and hashes. This repair reads legacy inputs only up to 64 MiB and changes
-JSON formatting, preserving every record and source identity. If the compact
-canonical representation still exceeds 16 MiB, it fails with
-`LEDGER_MIGRATION_REQUIRED`. Stop and retain the data; automated sharding and
-record eviction are not implemented. An arbitrary size increase would need
-reader, writer, journal, memory, and rollback evidence together.
+JSON formatting, preserving every record and source identity. It rewrites only
+ledgers that `capacity` reports as `near_capacity` (at least 85% of the limit)
+or `over_capacity`; smaller ledgers are left byte-for-byte unchanged and a vault
+with none is a `noop`. If the compact canonical representation still exceeds
+16 MiB, it fails with `LEDGER_MIGRATION_REQUIRED`, refusing early when even
+removing all whitespace could not fit. Stop and retain the data; automated
+sharding and record eviction are not implemented. An arbitrary size increase
+would need reader, writer, journal, memory, and rollback evidence together.
+
+The compaction is an ordinary transaction, so inspection runs the same semantic
+provenance validation as any ledger write. If the vault drifted out of band,
+for example a `.raw/` source edited after ingest so its recorded
+`content_sha256` no longer matches, inspection refuses the plan with
+`INVALID_PROVENANCE_LEDGER` even though only formatting would change. Do not
+bypass validation. Recover through a normal reviewed transaction that writes a
+corrected ledger in compact form (one JSON line with no insignificant
+whitespace), with the expected hash of the current ledger and an approved plan.
+
+Writers determine how long the savings last. `migration_bundle` (`migrate`)
+now writes canonical ledgers in that compact form. The `init`/`adopt` planner
+in `claude_obsidian/vault_ops.py` and hand-written bundles may still write
+indented JSON; that is valid, and compaction becomes relevant only once such a
+ledger approaches the limit.
 
 One content/predecessor file is bounded at 64 MiB; one operation's new content or
 recovery backups at 128 MiB; writes at 1,024. These storage ceilings are distinct
