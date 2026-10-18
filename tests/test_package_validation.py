@@ -62,6 +62,28 @@ class PackageValidationTests(unittest.TestCase):
             )
             self.assertTrue(validate_package(root)["ok"])
 
+    def test_reserved_host_identity_is_rejected_before_distribution(self) -> None:
+        names = ("claude-obsidian", "anthropic-notes", "anthropics-wiki", "cc-plugin-notes", "claude")
+        for name in names:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.fixture(root, frontmatter="---\nname: sample\ndescription: Sample.\n---")
+                plugin_path = root / ".claude-plugin/plugin.json"
+                plugin = json.loads(plugin_path.read_text())
+                plugin["name"] = name
+                plugin_path.write_text(json.dumps(plugin))
+                marketplace_path = root / "config/public-marketplace.json"
+                marketplace = json.loads(marketplace_path.read_text())
+                marketplace["plugins"][0]["name"] = name
+                marketplace_path.write_text(json.dumps(marketplace))
+                codes = {item["code"] for item in validate_package(root)["findings"]}
+                self.assertIn("reserved_plugin_name", codes)
+                plugin["name"] = "agricidaniel-obsidian"
+                marketplace["plugins"][0]["name"] = plugin["name"]
+                plugin_path.write_text(json.dumps(plugin))
+                marketplace_path.write_text(json.dumps(marketplace))
+                self.assertTrue(validate_package(root)["ok"])
+
     def test_duplicate_package_authority_keys_are_rejected(self) -> None:
         cases = {
             "hooks/hooks.json": '{"hooks":{},"hooks":{}}',
@@ -176,7 +198,7 @@ class PackageValidationTests(unittest.TestCase):
                         "hooks": {
                             "SessionStart": [
                                 {
-                                    "matcher": "startup|resume|clear|compact",
+                                    "matcher": "startup|resume|clear|compact|fork",
                                     "hooks": [
                                         {
                                             "type": "mcp_tool",
@@ -256,6 +278,17 @@ class PackageValidationTests(unittest.TestCase):
             )
             codes = {item["code"] for item in validate_package(root)["findings"]}
             self.assertIn("unapproved_mutation_example", codes)
+
+    def test_workflow_apply_examples_require_reviewed_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root, frontmatter='---\nname: sample\ndescription: Sample.\n---')
+            path = root / 'skills/sample/SKILL.md'
+            initial = path.read_text()
+            path.write_text(initial + '\n```bash\npython3 "$CORE" workflow apply "$BUNDLE" --vault "$VAULT"\n```\n')
+            self.assertIn('unapproved_apply_example', {x['code'] for x in validate_package(root)['findings']})
+            path.write_text(initial + '\n```bash\npython3 "$CORE" workflow apply "$BUNDLE" --vault "$VAULT" --approved-plan-sha256 "$HASH"\n```\n')
+            self.assertNotIn('unapproved_apply_example', {x['code'] for x in validate_package(root)['findings']})
 
     def test_marketplace_manifest_requires_a_distribution_clean_root(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

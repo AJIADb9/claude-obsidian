@@ -71,7 +71,7 @@
       "confirmation": {
         "mutation": "operation_scope",
         "network_egress": "not_applicable",
-        "destructive": "forbidden"
+        "destructive": "explicit"
       },
       "configuration": {
         "path_requirements": [],
@@ -603,6 +603,7 @@
         "scripts/setup-retrieve.sh",
         "scripts/bm25-index.py",
         "scripts/contextual-prefix.py",
+        "claude_obsidian/ollama.py",
         "scripts/rerank.py",
         "scripts/retrieve.py"
       ],

@@ -15,6 +15,7 @@ import tempfile
 import unittest
 from datetime import date, datetime
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +32,7 @@ assert spec.loader is not None
 spec.loader.exec_module(lint_engine)
 
 from claude_obsidian.ledgers import stable_source_id
+from claude_obsidian import transaction as transaction_module
 
 
 def _snapshot(root: Path) -> dict[str, str]:
@@ -53,7 +55,7 @@ class LintEngineTests(unittest.TestCase):
 
     def test_report_schema_and_all_required_categories(self) -> None:
         self.assertEqual(1, self.report["version"])
-        self.assertEqual("1.1.1", self.report["engine_version"])
+        self.assertEqual("1.2.0", self.report["engine_version"])
         self.assertEqual(8, self.report["summary"]["pages_scanned"])
         self.assertEqual(18, self.report["summary"]["links_scanned"])
         for category in (
@@ -314,7 +316,13 @@ tags:
                 r"wiki/Bad-\\udcff.md",
             }
             self.assertTrue(
-                expected_paths.issubset({item["path"] for item in report["orphans"]})
+                expected_paths.issubset(
+                    {item["path"] for item in report["orphans"]}
+                    | {item["path"] for item in report["read_errors"]}
+                )
+            )
+            self.assertEqual(
+                expected_paths, {item["path"] for item in report["read_errors"]}
             )
 
             commands = (
@@ -373,6 +381,7 @@ tags:
                     self.assertTrue(
                         expected_paths.issubset(
                             {item["path"] for item in parsed["orphans"]}
+                            | {item["path"] for item in parsed["read_errors"]}
                         )
                     )
                 else:
@@ -731,6 +740,670 @@ tags:
         )
 
 
+class ObsidianConformanceTests(unittest.TestCase):
+    """Static syntax fixtures, not evidence from the native application."""
+
+    FRONT = (
+        "---\ntitle: Fixture\ntype: concept\nstatus: developing\n"
+        "created: 2026-10-17\nupdated: 2026-10-17\ntags: []\n---\n"
+    )
+
+    def _lint(self, files: dict[str, str], **options) -> dict:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for relative, text in files.items():
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+            before = _snapshot(root)
+            report = lint_engine.lint_vault(root, as_of="2026-10-17", **options)
+            self.assertEqual(before, _snapshot(root))
+            return report
+
+    def test_protected_regions_do_not_emit_links_and_offsets_survive(self) -> None:
+        protected = [
+            "%% [[Hidden]] %%", "%%\n[[Hidden]]\n%%", "    [[Hidden]]",
+            "\t[[Hidden]]", "    - [[Hidden]]", r"\[[Hidden]]", r"\[Hidden](Missing.md)",
+            "`[[Hidden]]`", "`` [[Hidden]] ` literal ``", "$[[Hidden]]$",
+            "$$\n[[Hidden]]\n$$", "<!-- [[Hidden]] -->",
+            "````markdown\n```\n[[Hidden]]\n```\n````",
+            "~~~markdown\n[[Hidden]]\n~~~", "- ```\n  [[Hidden]]\n  ```",
+        ]
+        for body in protected:
+            with self.subTest(body=body):
+                text = self.FRONT + "# Fixture\n\n" + body + "\n\n[[Visible]]\n"
+                report = self._lint({"wiki/Fixture.md": text})
+                self.assertEqual(["Visible"], [x["target"] for x in report["dead_links"]])
+                self.assertEqual(text[:text.index("[[Visible]]")].count("\n") + 1,
+                                 report["dead_links"][0]["line"])
+                masked = lint_engine._mask_markdown_code(text)
+                self.assertEqual(len(text), len(masked))
+                self.assertEqual([i for i, c in enumerate(text) if c == "\n"],
+                                 [i for i, c in enumerate(masked) if c == "\n"])
+
+    def test_literal_comment_markers_in_code_do_not_hide_visible_links(self) -> None:
+        for code in ("`<!--`", "`%%`", "```text\n<!--\n```", "    <!--"):
+            with self.subTest(code=code):
+                report = self._lint({"wiki/Fixture.md": self.FRONT + code + "\n\n[[Visible]]\n"})
+                self.assertEqual(["Visible"], [x["target"] for x in report["dead_links"]])
+
+    def test_nested_list_navigation_stays_visible_but_nested_code_does_not(self) -> None:
+        text = ("- Parent\n    [[Visible]]\n    - Child\n        [Second](Second.md)\n\n"
+                "          [[Hidden]]\n")
+        report = self._lint({"wiki/Fixture.md": self.FRONT + text})
+        self.assertEqual({"Visible", "Second.md"}, {x["target"] for x in report["dead_links"]})
+
+    def test_list_fences_end_at_container_boundary_without_exposing_code(self) -> None:
+        for visible in ('\n[Visible](Visible.md)\n', '- [Visible](Visible.md)\n'):
+            with self.subTest(visible=visible):
+                text = self.FRONT + '- ```\n  [[Hidden]]\n' + visible
+                report = self._lint({"wiki/Fixture.md": text})
+                self.assertEqual(["Visible.md"], [x["target"] for x in report["dead_links"]])
+                masked = lint_engine._mask_markdown_code(text)
+                self.assertEqual(len(text), len(masked))
+                self.assertEqual(text.index('[Visible]'), masked.index('[Visible]'))
+        for text in ('- ```\n  [[Hidden]]\n  - [Hidden](Hidden.md)\n',
+                     '- ```\n  [[Hidden]]\n\n  [Hidden](Hidden.md)\n  ```\n',
+                     '```\n[[Hidden]]\n\n[Hidden](Hidden.md)\n'):
+            with self.subTest(text=text):
+                report = self._lint({"wiki/Fixture.md": self.FRONT + text})
+                self.assertEqual([], report["dead_links"])
+
+    def test_markdown_destinations_preserve_literal_math_punctuation(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT + '[A](Price$10$.md)\n[B](<Price$10$.md>)\n[[Price$10$]]\n'
+                '`[Hidden](Price$10$.md)`\n%% [Hidden](Price$10$.md) %%\n',
+            "wiki/Price$10$.md": self.FRONT + "Text.\n",
+        })
+        self.assertEqual([], report["dead_links"])
+        self.assertEqual(3, report["summary"]["links_scanned"])
+
+    def test_angled_and_titled_markdown_destinations_share_resolution(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT + '[A](<Target (one).md> "A title")\n[B](Target.md (a title))\n',
+            "wiki/Target (one).md": self.FRONT + "Text.\n",
+            "wiki/Target.md": self.FRONT + "Text.\n",
+        })
+        self.assertEqual([], report["dead_links"])
+        self.assertEqual(2, report["summary"]["links_scanned"])
+
+    def test_balanced_markdown_labels_respect_escapes_and_code_spans(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT + (
+                "[see [Target]](Target.md)\n"
+                r"[escaped \] bracket](Escaped.md)" "\n"
+                "[code `]` bracket](Code.md)\n"
+            ),
+            "wiki/Target.md": self.FRONT + "Content.\n",
+            "wiki/Escaped.md": self.FRONT + "Content.\n",
+            "wiki/Code.md": self.FRONT + "Content.\n",
+        })
+        self.assertEqual([], report["dead_links"])
+        self.assertEqual([], report["orphans"])
+        self.assertEqual(3, report["summary"]["links_scanned"])
+
+    def test_large_malformed_bracket_run_emits_no_navigation(self) -> None:
+        self.assertEqual([], list(lint_engine.iter_markdown_links("[" * 100_000)))
+
+    def test_encoded_filename_is_split_before_one_decode(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT + (
+                "[hash](dir%20%231/file.md#A%20heading)\n"
+                "[literal percent](100%2523.md)\n"
+                "[[dir%20%231/file#A heading]]\n"
+                "[block](dir%20%231/file.md#%5Eblock)\n"
+                "[missing](absent%23file.md)\n"
+            ),
+            "wiki/dir #1/file.md": self.FRONT + "# A heading\n\nText. ^block\n",
+            "wiki/100%23.md": self.FRONT + "# Literal percent\n\nText.\n",
+        })
+        self.assertEqual([("absent#file.md", "target-not-found")], [
+            (entry["target"], entry["reason"]) for entry in report["dead_links"]
+        ])
+
+    def test_flat_vault_is_diagnosed_without_expanding_page_scope(self) -> None:
+        report = self._lint({
+            ".obsidian/app.json": "{}\n",
+            "Note.md": "[[Missing]]\n",
+        })
+        self.assertEqual(0, report["summary"]["pages_scanned"])
+        self.assertEqual(0, report["summary"]["links_scanned"])
+        self.assertEqual("no-pages-in-scope", report["scope"]["coverage"])
+        self.assertEqual(1, report["summary"]["markdown_files_outside_scope"])
+        self.assertEqual("no-pages-in-scope", report["configuration_errors"][0]["reason"])
+        self.assertEqual([], report["missing_frontmatter"])
+
+    def test_empty_vault_is_distinct_from_unscanned_content(self) -> None:
+        report = self._lint({".obsidian/app.json": "{}\n"})
+        self.assertEqual("empty", report["scope"]["coverage"])
+        self.assertEqual([], report["configuration_errors"])
+
+    def test_coverage_accounts_for_outside_and_excluded_markdown(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT + "Text.\n",
+            "wiki/draft.md": "[[Missing]]\n",
+            "Inbox.md": "[[Unscanned]]\n",
+        }, exclude=["wiki/draft.md"])
+        self.assertEqual(3, report["summary"]["markdown_files_discovered"])
+        self.assertEqual(1, report["summary"]["markdown_files_excluded"])
+        self.assertEqual(1, report["summary"]["markdown_files_outside_scope"])
+        self.assertEqual("partial", report["scope"]["coverage"])
+
+    @unittest.skipUnless(lint_engine._supports_hidden_checks(), "confined stat unavailable")
+    def test_existing_hidden_source_and_missing_source_are_distinct(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT + (
+                "[source](../.raw/capture/source.txt)\n"
+                "[missing](../.raw/capture/missing.txt)\n"
+                "[[source]]\n"
+            ),
+            ".raw/capture/source.txt": "Immutable source.\n",
+            ".raw/capture/source.md": "[[Invisible ghost]]\n",
+        })
+        self.assertEqual(
+            {"../.raw/capture/missing.txt", "source"},
+            {entry["target"] for entry in report["dead_links"]},
+        )
+        self.assertEqual(1, len(report["hidden_target_links"]))
+        self.assertEqual("hidden-target-exists-not-indexed", report["hidden_target_links"][0]["reason"])
+        self.assertEqual(".raw/capture/source.txt", report["hidden_target_links"][0]["resolved_path"])
+        self.assertEqual(1, report["summary"]["pages_scanned"])
+
+    def test_hidden_target_status_is_explicit_when_confined_checks_are_unavailable(self) -> None:
+        with mock.patch.object(lint_engine, "_supports_hidden_checks", return_value=False):
+            report = self._lint({
+                "wiki/index.md": self.FRONT + (
+                    "[source](../.raw/source.txt)\n[missing](../.raw/missing.txt)\n"
+                ),
+                ".raw/source.txt": "Source.\n",
+            })
+        self.assertEqual([], report["dead_links"])
+        self.assertEqual(["hidden-target-status-unverified"] * 2, [
+            entry["reason"] for entry in report["hidden_target_links"]
+        ])
+        self.assertNotIn("existing hidden file", lint_engine.render_markdown(report))
+
+    def test_hidden_source_checks_never_follow_symlinks_or_escape_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "vault"
+            (root / "wiki").mkdir(parents=True)
+            (root / ".raw").mkdir()
+            external = Path(directory) / "outside.txt"
+            external.write_text("Private.\n", encoding="utf-8")
+            try:
+                (root / ".raw/source.txt").symlink_to(external)
+                (root / ".raw/ancestor").symlink_to(external.parent, target_is_directory=True)
+            except OSError:
+                self.skipTest("symlinks unavailable")
+            (root / "wiki/index.md").write_text(self.FRONT + (
+                "[link](../.raw/source.txt)\n"
+                "[ancestor](../.raw/ancestor/outside.txt)\n"
+                "[outside](../../outside.txt)\n"
+            ), encoding="utf-8")
+            report = lint_engine.lint_vault(root, as_of="2026-10-17")
+        if lint_engine._supports_hidden_checks():
+            self.assertEqual([], report["hidden_target_links"])
+            self.assertEqual(3, len(report["dead_links"]))
+        else:
+            self.assertEqual(1, len(report["dead_links"]))
+            self.assertEqual(["hidden-target-status-unverified"] * 2, [
+                entry["reason"] for entry in report["hidden_target_links"]
+            ])
+
+    def test_nested_heading_paths_obey_parent_hierarchy(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT + (
+                "[[Topic#Parent#Child]]\n"
+                "[[Topic#Other#Child]]\n"
+                "[[Topic#Parent#Leaf]]\n"
+                "[encoded](Topic.md#Parent%23Child)\n"
+                "[[Topic#Parent#Absent]]\n"
+                "[[Topic#Other#Leaf]]\n"
+            ),
+            "wiki/Topic.md": self.FRONT + (
+                "# Parent\n\nIntro.\n## **Child**\n\nContent.\n"
+                "### Leaf\n\nContent.\n# Other\n\nIntro.\n## Child\n\nContent.\n"
+            ),
+        })
+        self.assertEqual({"Topic#Parent#Absent", "Topic#Other#Leaf"}, {
+            entry["target"] for entry in report["dead_links"]
+        })
+
+    def test_same_note_nested_heading_path_resolves(self) -> None:
+        report = self._lint({"wiki/index.md": self.FRONT + (
+            "[[#Parent#Child]]\n\n# Parent\n\nText.\n## Child\n\nText.\n"
+        )})
+        self.assertEqual([], report["dead_links"])
+
+    def test_setext_headings_resolve_fragments_and_mixed_hierarchy(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT + (
+                "[encoded](Topic.md#Parent%23Real%20heading)\n"
+                "[[Topic#Parent#Real heading#Leaf]]\n"
+                "[[Topic#Other#Child]]\n[[Topic#Parent#Child]]\n"
+            ),
+            "wiki/Topic.md": self.FRONT + (
+                "Parent\n======\n\nIntro.\n\nReal heading\n------------\n\nContent.\n"
+                "### Leaf\n\nContent.\n\nOther\n=====\n\nIntro.\n## Child\n\nContent.\n"
+            ),
+        })
+        self.assertEqual(["Topic#Parent#Child"], [item['target'] for item in report['dead_links']])
+        self.assertEqual([], report['empty_sections'])
+
+    def test_multiline_setext_heading_uses_entire_paragraph(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT + (
+                "[[Topic#First line second line]]\n[[Topic#second line]]\n"
+                "[encoded](Topic.md#First%20line%20second%20line)\n"
+            ),
+            "wiki/Topic.md": self.FRONT + (
+                "First line\nsecond line\n===========\n\nContent.\n"
+            ),
+        })
+        self.assertEqual(['Topic#second line'], [item['target'] for item in report['dead_links']])
+
+    def test_styled_setext_and_atx_headings_keep_visible_inline_text(self) -> None:
+        for title, fragment in (
+            ('Heading `code`', 'Heading code'),
+            ('`Entire code title`', 'Entire code title'),
+            ('Heading [link label](https://example.com/)', 'Heading link label'),
+            ('Heading **strong** and *emphasis*', 'Heading strong and emphasis'),
+            ('Heading [`code label`](https://example.com/)', 'Heading code label'),
+        ):
+            for heading in (title + '\n====\n', '# ' + title + '\n'):
+                with self.subTest(title=title, heading=heading):
+                    report = self._lint({'wiki/index.md': self.FRONT + (
+                        f'[[#{fragment}]]\n[[#Heading]]\n\n' + heading + '\nContent.\n'
+                    )})
+                    self.assertEqual(['#Heading'], [item['target'] for item in report['dead_links']])
+                    self.assertEqual([], report['empty_sections'])
+
+    def test_heading_links_use_balanced_labels_and_visible_wikilink_aliases(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT + (
+                "[[Heading#Docs]]\n[[Heading#Readable heading]]\n"
+                "[literal](Heading.md#%5BDocs%5D%28folder_%28x%29.md%29)\n"
+            ),
+            "wiki/Heading.md": self.FRONT + (
+                "# [Docs](folder_(x).md)\n\nContent.\n"
+                "# [[Target|Readable heading]]\n\nContent.\n"
+                "# `[Docs](folder_(x).md)`\n\nContent.\n"
+            ),
+            "wiki/folder_(x).md": self.FRONT + "# Destination\n\nContent.\n",
+            "wiki/Target.md": self.FRONT + "# Target\n\nContent.\n",
+        })
+        self.assertEqual([], report["dead_links"])
+
+    def test_wikilink_text_in_inline_code_remains_a_literal_heading(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT + (
+                "[literal](Heading.md#%5B%5BTarget%7CVisible%5D%5D)\n"
+                "[alias only](Heading.md#Visible)\n"
+            ),
+            "wiki/Heading.md": self.FRONT + "# `[[Target|Visible]]`\n\nContent.\n",
+        })
+        self.assertEqual(
+            ["Heading.md#Visible"], [entry["target"] for entry in report["dead_links"]]
+        )
+
+    def test_styled_multiline_setext_heading_keeps_inline_code_text(self) -> None:
+        report = self._lint({'wiki/index.md': self.FRONT + (
+            '[[#First code second label]]\n[[#First second label]]\n\n'
+            'First `code`\nsecond **label**\n====\n\nContent.\n'
+        )})
+        self.assertEqual(['#First second label'], [item['target'] for item in report['dead_links']])
+
+    def test_protected_styled_examples_cannot_create_heading_labels(self) -> None:
+        for protected in (
+            '```markdown\nFake `code`\n====\n# Fake `code`\n```',
+            '    Fake `code`\n    ====\n    # Fake `code`',
+            '<!--\nFake `code`\n====\n# Fake `code`\n-->',
+            '%%\nFake `code`\n====\n# Fake `code`\n%%',
+            '$$\nFake `code`\n====\n# Fake `code`\n$$',
+        ):
+            with self.subTest(protected=protected):
+                report = self._lint({'wiki/index.md': self.FRONT + (
+                    '[[#Fake code]]\n\n' + protected + '\n\n# Visible\n\nContent.\n'
+                )})
+                self.assertEqual(['#Fake code'], [item['target'] for item in report['dead_links']])
+
+    def test_multiline_inline_code_cannot_manufacture_block_heading_markers(self) -> None:
+        report = self._lint({'wiki/index.md': self.FRONT + (
+            '[[#Fake atx]]\n[[#start]]\n[[#Visible code]]\n\n'
+            '`start\n# Fake atx\n====\nend`\n\n# Visible `code`\n\nContent.\n'
+        )})
+        self.assertEqual({'#Fake atx', '#start'}, {item['target'] for item in report['dead_links']})
+
+    def test_inline_code_comment_and_math_markers_do_not_hide_following_headings(self) -> None:
+        report = self._lint({'wiki/index.md': self.FRONT + (
+            '[[#Literal <!-- marker]]\n[[#Literal $fake$ marker]]\n[[#Following]]\n\n'
+            '# Literal `<!--` marker\n\nContent.\n\n'
+            '# Literal `$fake$` marker\n\nContent.\n\n# Following\n\nContent.\n'
+        )})
+        self.assertEqual([], report['dead_links'])
+
+    def test_raw_html_blocks_cannot_create_atx_or_setext_headings(self) -> None:
+        for tag in ('div', 'script', 'pre', 'style', 'textarea', 'DIV'):
+            with self.subTest(tag=tag):
+                report = self._lint({'wiki/index.md': self.FRONT + (
+                    f'[[#<{tag}> Fake]]\n[[#Fake atx]]\n[[#Real code]]\n\n'
+                    f'<{tag}>\nFake\n====\n# Fake atx\n</{tag}>\n\n'
+                    'Real `code`\n====\n\nContent.\n'
+                )})
+                self.assertEqual({f'#<{tag}> Fake', '#Fake atx'}, {
+                    item['target'] for item in report['dead_links']
+                })
+                self.assertEqual([], report['empty_sections'])
+
+    def test_raw_html_text_blocks_use_actual_closer_and_block_tags_use_blank_boundary(self) -> None:
+        report = self._lint({'wiki/index.md': self.FRONT + (
+            '[[#Visible]]\n[[#Script fake]]\n[[#Div fake]]\n\n'
+            '<script>\n\n# Script fake\n`</script>`\n'
+            '# Visible\n\nContent.\n\n'
+            '<div>\n</div>\n# Div fake\n\nContent.\n'
+        )})
+        self.assertEqual({'#Script fake', '#Div fake'}, {item['target'] for item in report['dead_links']})
+
+    def test_html_literals_in_inline_and_fenced_code_do_not_start_raw_blocks(self) -> None:
+        report = self._lint({'wiki/index.md': self.FRONT + (
+            '[[#Literal <div>]]\n[[#After sample]]\n\n'
+            '# Literal `<div>`\n\nContent.\n\n'
+            '```html\n<script>\n# Fake\n====\n```\n\n'
+            '# After sample\n\nContent.\n'
+        )})
+        self.assertEqual([], report['dead_links'])
+
+    def test_markdown_markers_inside_raw_html_do_not_swallow_following_headings(self) -> None:
+        for marker in ('```', '`unclosed', '<!-- unclosed', '$$'):
+            with self.subTest(marker=marker):
+                report = self._lint({'wiki/index.md': self.FRONT + (
+                    '[[#Following code]]\n\n<script>\n' + marker + '\n</script>\n\n'
+                    '# Following `code`\n\nContent.\n'
+                )})
+                self.assertEqual([], report['dead_links'])
+
+    def test_literal_markdown_in_raw_html_cannot_hide_later_html_block_openers(self) -> None:
+        for marker in ('```', '<!-- unclosed', '`unclosed', '$$'):
+            with self.subTest(marker=marker):
+                report = self._lint({'wiki/index.md': self.FRONT + (
+                    '[[#Hidden]]\n[[#<div> Hidden setext]]\n[[#Visible code]]\n\n'
+                    '<script>\n' + marker + '\n</script>\n\n'
+                    '<div>\n# Hidden\nHidden setext\n====\n</div>\n\n'
+                    '# Visible `code`\n\nContent.\n'
+                )})
+                self.assertEqual({'#Hidden', '#<div> Hidden setext'}, {
+                    item['target'] for item in report['dead_links']
+                })
+                self.assertEqual([], report['empty_sections'])
+
+    def test_literal_html_in_code_cannot_open_a_block_before_later_visible_heading(self) -> None:
+        for literal in ('`<script>`', '```html\n<script>\n<div>\n```',
+                        '`start\n<div>\nend`'):
+            with self.subTest(literal=literal):
+                report = self._lint({'wiki/index.md': self.FRONT + (
+                    '[[#Visible code]]\n\n' + literal + '\n\n'
+                    '# Visible `code`\n\nContent.\n'
+                )})
+                self.assertEqual([], report['dead_links'])
+
+    def test_setext_empty_sections_share_heading_boundaries_and_source_lines(self) -> None:
+        body = ('Parent\n======\n\nEmpty child\n-----------\n\n'
+                'Next\n====\n\nContent.\n\n# Atx empty\n')
+        report = self._lint({'wiki/index.md': self.FRONT + body})
+        self.assertEqual([
+            {'path': 'wiki/index.md', 'line': 9, 'heading': 'Parent'},
+            {'path': 'wiki/index.md', 'line': 12, 'heading': 'Empty child'},
+            {'path': 'wiki/index.md', 'line': 20, 'heading': 'Atx empty'},
+        ], report['empty_sections'])
+
+    def test_setext_examples_inside_protected_regions_do_not_become_headings(self) -> None:
+        for protected in (
+            '```markdown\nFake\n====\n```', '~~~\nFake\n----\n~~~',
+            '    Fake\n    ====', '\tFake\n\t====',
+            '<!--\nFake\n====\n-->', '%%\nFake\n----\n%%',
+            '`Fake\n====`', '$$\nFake\n====\n$$',
+        ):
+            with self.subTest(protected=protected):
+                report = self._lint({'wiki/index.md': self.FRONT + (
+                    '[[#Real]]\n[[#Fake]]\n\n' + protected + '\n\nReal\n====\n\nContent.\n'
+                )})
+                self.assertEqual(['#Fake'], [item['target'] for item in report['dead_links']])
+                self.assertEqual([], report['empty_sections'])
+
+    def test_frontmatter_and_block_markers_are_not_setext_titles(self) -> None:
+        for candidate in ('# Fake', '- Fake', '> Fake', '***', '---', '    Fake'):
+            with self.subTest(candidate=candidate):
+                report = self._lint({'wiki/index.md': self.FRONT + (
+                    '[[#Fake]]\n\n' + candidate + '\n====\n\nContent.\n'
+                )})
+                if candidate == '# Fake':
+                    self.assertEqual([], report['dead_links'])
+                else:
+                    self.assertEqual(['#Fake'], [item['target'] for item in report['dead_links']])
+        report = self._lint({'wiki/index.md': '---\ntitle: Fake\n===\n---\n\n[[#title: Fake]]\n'})
+        self.assertEqual(['#title: Fake'], [item['target'] for item in report['dead_links']])
+
+    def test_setext_section_with_fenced_content_is_not_empty(self) -> None:
+        report = self._lint({'wiki/index.md': self.FRONT + (
+            'Code sample\n===========\n\n```text\nExample\n=======\n```\n'
+        )})
+        self.assertEqual([], report['empty_sections'])
+
+    def test_obsidian_comments_are_empty_but_comment_markers_in_code_are_content(self) -> None:
+        body = (
+            "# Inline hidden\n\n%% editorial note %%\n\n"
+            "# Multiline hidden\n\n%%\neditorial note\n%%\n\n"
+            "# Inline code\n\n`%% visible code %%`\n\n"
+            "# Fenced code\n\n```text\n%% visible code %%\n```\n\n"
+            "# Indented code\n\n    %% visible code %%\n"
+        )
+        report = self._lint({"wiki/index.md": self.FRONT + body})
+        self.assertEqual(
+            {"Inline hidden", "Multiline hidden"},
+            {entry["heading"] for entry in report["empty_sections"]},
+        )
+
+    def test_dot_prefixed_files_and_directories_are_outside_visible_graph(self) -> None:
+        report = self._lint({
+            'wiki/index.md': self.FRONT + '[[Visible]]\n',
+            'wiki/Visible.md': self.FRONT + '# Visible\n\nContent.\n',
+            'wiki/.Hidden.md': '# Hidden\n[[Missing]]\n',
+            'wiki/.hidden/Secret.md': '# Secret\n[[Missing]]\n',
+        })
+        self.assertEqual(2, report['summary']['markdown_files_discovered'])
+        self.assertEqual([], report['dead_links'])
+        self.assertEqual([], report['missing_frontmatter'])
+
+    def test_pdf_options_are_syntax_checked_without_page_count_claim(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT + (
+                "![[paper.pdf#page=3]]\n![[paper.pdf#height=400]]\n"
+                "![[paper.pdf#page=999&height=400]]\n"
+                "![[paper.pdf#page=0]]\n![[paper.pdf#height=-2]]\n"
+                "![[paper.pdf#page=2&page=3]]\n![[paper.pdf#unknown=3]]\n"
+                "![[missing.pdf#page=3]]\n"
+            ),
+            "wiki/paper.pdf": "Static placeholder, PDF contents are not parsed.\n",
+        })
+        self.assertEqual(5, len(report["dead_links"]))
+        self.assertEqual(3, report["summary"]["pdf_fragments_syntax_checked"])
+        self.assertIn("PDF page counts and rendering are not checked", report["scope"]["limitations"])
+
+    def test_named_base_views_resolve_and_unknown_fields_remain_intact(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT + (
+                '![[Dashboard.base#Wiki pages]]\n![[Dashboard.base#Quoted: view]]\n'
+                '![[Dashboard.base#Missing view]]\n'
+            ),
+            "wiki/Dashboard.base": (
+                "filters:\n  and:\n    - file.ext == 'md'\n"
+                "views:\n  - type: table\n    name: Wiki pages\n"
+                "    futureOption:\n      preserve: [unknown, fields]\n"
+                "  - name: 'Quoted: view'\n    type: kanban\n    groupOrder: []\n"
+            ),
+        })
+        self.assertEqual(["base-view-not-found"], [entry["reason"] for entry in report["dead_links"]])
+        self.assertEqual([], report["unsupported_fragments"])
+
+    def test_complex_base_yaml_is_unsupported_instead_of_declared_broken(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT + "![[Complex.base#Inherited]]\n",
+            "wiki/Complex.base": "views:\n  - <<: *shared-view\n",
+        })
+        self.assertEqual([], report["dead_links"])
+        self.assertEqual("base-view-semantics-unsupported", report["unsupported_fragments"][0]["reason"])
+
+    def test_property_links_have_exact_lines_and_aliases_are_only_names(self) -> None:
+        report = self._lint({
+            "wiki/index.md": (
+                '---\ntitle: Fixture\ntype: concept\nstatus: developing\n'
+                'created: 2026-10-17\nupdated: 2026-10-17\ntags: []\n'
+                'related: ["[[Existing]]", \'[[Missing inline]]\']\n'
+                'sources:\n  - "[[Missing block]]"\n'
+                'description: "Read [[Missing text]]" # [[Comment ghost]]\n'
+                'aliases: ["[[Alias is a name]]"]\n'
+                'unquoted: [[Unsupported property syntax]]\n'
+                '---\n\n[[Existing]]\n`[[Code ghost]]`\n'
+            ),
+            "wiki/Existing.md": self.FRONT + "Content.\n",
+        })
+        self.assertEqual(
+            [(8, "Missing inline"), (10, "Missing block"), (11, "Missing text")],
+            [(entry["line"], entry["target"]) for entry in report["dead_links"]],
+        )
+        self.assertEqual(5, report["summary"]["links_scanned"])
+        self.assertEqual(4, report["summary"]["property_links_scanned"])
+        self.assertEqual([], report["orphans"])
+
+    def test_aliases_share_flat_yaml_quote_list_and_comment_parsing(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT + "[[Doe, John]]\n[[Johnny]]\n",
+            "wiki/Person.md": self.FRONT.replace(
+                "tags: []", "tags: []\naliases: ['Doe, John']"
+            ) + "# Person\n\nContent.\n",
+            "wiki/Other.md": self.FRONT.replace(
+                "tags: []", 'tags: []\naliases:\n  - "Johnny" # preferred'
+            ) + "# Other\n\nContent.\n",
+        })
+        self.assertEqual([], report["dead_links"])
+        self.assertEqual([], report["orphans"])
+
+    def test_default_frontmatter_policy_preserves_adopted_vocabulary(self) -> None:
+        report = self._lint({"wiki/index.md": (
+            "---\ntitle: Custom\ntype: diary\nstatus: published\n"
+            "created: yesterday\nupdated: sometime\ntags: custom\n---\nText.\n"
+        )})
+        self.assertEqual([], report["invalid_frontmatter"])
+        self.assertEqual("presence", report["scope"]["frontmatter_policy"])
+
+    def test_generated_policy_checks_type_status_dates_tags_and_blank_title(self) -> None:
+        report = self._lint({"wiki/index.md": (
+            '---\ntitle: ""\ntype: diary\nstatus: ""\n'
+            'created: 2026-02-30\nupdated: 2026-10-17T12:00:00Z\n'
+            'tags: ["2026", "has space", 42]\n---\nText.\n'
+        )}, frontmatter_policy="generated")
+        self.assertEqual({"title", "type", "status", "created", "updated", "tags"}, {
+            entry["field"] for entry in report["invalid_frontmatter"]
+        })
+
+    def test_generated_policy_accepts_unicode_tags_and_preserves_custom_properties(self) -> None:
+        report = self._lint({"wiki/index.md": self.FRONT.replace(
+            "tags: []", 'tags: ["year/2026", "知識", "café", "under_score", "🚀", "👩‍💻", "café"]'
+        ) + "Content.\n"}, frontmatter_policy="generated")
+        self.assertEqual([], report["invalid_frontmatter"])
+
+    def test_malformed_property_values_do_not_fabricate_links(self) -> None:
+        report = self._lint({"wiki/index.md": (
+            self.FRONT[:-4] +
+            'broken: "[[Ghost]]" "extra"\n'
+            'nested:\n  mapping: "[[Nested ghost]]"\n'
+            'nested_list:\n  mapping:\n    - "[[Nested list ghost]]"\n'
+            'unclosed: ["[[Unclosed ghost]]"\n'
+            '---\nContent.\n'
+        )})
+        self.assertEqual([], report["dead_links"])
+        self.assertEqual(0, report["summary"]["property_links_scanned"])
+
+    def test_property_scalar_decoding_preserves_physical_line_numbers(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT[:-4] + (
+                "related: # list comment\n"
+                "- '[[O''Brien]]'\n"
+                'description: "Text\\n[[Missing decoded text]]"\n'
+                "---\nContent.\n"
+            ),
+            "wiki/O'Brien.md": self.FRONT + "Content.\n",
+        })
+        self.assertEqual([(10, "Missing decoded text")], [
+            (entry["line"], entry["target"]) for entry in report["dead_links"]
+        ])
+        self.assertEqual(2, report["summary"]["property_links_scanned"])
+
+    def test_huge_numeric_metadata_does_not_abort_adopted_schema_scan(self) -> None:
+        report = self._lint({"wiki/index.md": self.FRONT[:-4] + (
+            "count: " + "9" * 5000 + "\n---\nText.\n"
+        )})
+        self.assertEqual([], report["invalid_frontmatter"])
+        self.assertEqual(1, report["summary"]["pages_scanned"])
+
+    def test_generated_tags_reject_omitted_flow_list_entries(self) -> None:
+        for value in ("[,valid]", "[valid,,also_valid]", "[valid,,]", "[,]"):
+            with self.subTest(tags=value):
+                report = self._lint({"wiki/index.md": self.FRONT.replace(
+                    "tags: []", "tags: " + value
+                ) + "Content.\n"}, frontmatter_policy="generated")
+                self.assertEqual(["tags"], [entry["field"] for entry in report["invalid_frontmatter"]])
+
+    def test_generated_tags_allow_empty_list_and_legal_trailing_comma(self) -> None:
+        for value in ("[]", "[ ]", "[valid,]", "[valid, also_valid, ]"):
+            with self.subTest(tags=value):
+                report = self._lint({"wiki/index.md": self.FRONT.replace(
+                    "tags: []", "tags: " + value
+                ) + "Content.\n"}, frontmatter_policy="generated")
+                self.assertEqual([], report["invalid_frontmatter"])
+
+    def test_presence_profile_does_not_add_generated_value_validation(self) -> None:
+        report = self._lint({"wiki/index.md": self.FRONT.replace(
+            "tags: []", "tags: [valid,,also_valid]"
+        ) + "Content.\n"})
+        self.assertEqual([], report["invalid_frontmatter"])
+        self.assertEqual(0, report["summary"]["issues_found"])
+
+    def test_unknown_nested_property_reports_parser_scope_without_schema_judgment(self) -> None:
+        report = self._lint({"wiki/index.md": self.FRONT[:-4] + (
+            'custom:\n  nested:\n    - "[[Outside flat subset]]"\n'
+            "---\nContent.\n"
+        )})
+        self.assertEqual([], report["invalid_frontmatter"])
+        self.assertEqual([], report["dead_links"])
+        self.assertEqual(0, report["summary"]["issues_found"])
+        self.assertEqual("partial", report["scope"]["frontmatter_values_coverage"])
+        self.assertEqual([{"path": "wiki/index.md", "field": "custom", "line": 8,
+                           "reason": "outside-flat-parser-subset"}],
+                         report["scope"]["unsupported_frontmatter_values"])
+
+    def test_duplicate_required_property_is_rejected_only_by_generated_profile(self) -> None:
+        files = {"wiki/index.md": self.FRONT[:-4] + "title: Duplicate\n---\nContent.\n"}
+        adopted = self._lint(files)
+        generated = self._lint(files, frontmatter_policy="generated")
+        self.assertEqual([], adopted["invalid_frontmatter"])
+        self.assertEqual([("title", "duplicate-property")], [
+            (entry["field"], entry["reason"]) for entry in generated["invalid_frontmatter"]
+        ])
+
+    def test_generated_policy_can_be_selected_from_vault_config(self) -> None:
+        report = self._lint({
+            "wiki/index.md": self.FRONT.replace("type: concept", "type: unknown") + "Text.\n",
+            ".vault-meta/lint.json": json.dumps({"frontmatter_policy": "generated"}),
+        })
+        self.assertEqual("generated", report["scope"]["frontmatter_policy"])
+        self.assertEqual("type", report["invalid_frontmatter"][0]["field"])
+
+    def test_invalid_frontmatter_policy_fails_closed(self) -> None:
+        with self.assertRaisesRegex(ValueError, "frontmatter_policy"):
+            self._lint({"wiki/index.md": self.FRONT}, frontmatter_policy="unknown")
+
+
 class WalkScopeTests(unittest.TestCase):
     def test_raw_claude_and_trash_captures_are_not_walked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -842,6 +1515,416 @@ class WalkScopeTests(unittest.TestCase):
         self.assertNotIn(
             "wiki/scratchpad/Draft.md", {item["path"] for item in report["orphans"]}
         )
+
+
+class WikiEntrypointResolutionTests(unittest.TestCase):
+    FRONT = (
+        "---\ntitle: Page\ntype: concept\nstatus: active\n"
+        "created: 2026-10-18\nupdated: 2026-10-18\ntags: []\n---\n"
+    )
+
+    def test_parent_targets_resolve_without_expanding_report_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            vault = Path(directory) / "vault"
+            wiki = vault / "wiki"
+            (vault / "assets").mkdir(parents=True)
+            (vault / "assets/plot.png").write_bytes(b"plot")
+            (vault / "Reference.md").write_text("# Known heading\n", encoding="utf-8")
+            (vault / "Dashboard.base").write_text(
+                "views:\n  - name: Wiki pages\n", encoding="utf-8"
+            )
+            wiki.mkdir()
+            (wiki / "Page.md").write_text(
+                self.FRONT
+                + "![plot](../assets/plot.png)\n"
+                + "[reference](../Reference.md#Known%20heading)\n"
+                + "![[../Dashboard.base#Wiki pages]]\n",
+                encoding="utf-8",
+            )
+
+            via_vault = lint_engine.lint_vault(vault, as_of="2026-10-18")
+            via_wiki = lint_engine.lint_vault(wiki, as_of="2026-10-18")
+
+        self.assertEqual([], via_vault["dead_links"])
+        self.assertEqual([], via_wiki["dead_links"])
+        self.assertEqual(1, via_wiki["summary"]["pages_scanned"])
+        self.assertEqual(1, via_wiki["summary"]["markdown_files_discovered"])
+        self.assertEqual(1, via_wiki["summary"]["link_targets_indexed"])
+        self.assertEqual("complete", via_wiki["scope"]["coverage"])
+        self.assertEqual([], via_wiki["missing_frontmatter"])
+        self.assertEqual([{"path": "Page.md"}], via_wiki["orphans"])
+
+    def test_confined_markdown_read_preserves_bom_and_newline_semantics(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            vault = Path(directory) / "vault"
+            wiki = vault / "wiki"
+            wiki.mkdir(parents=True)
+            page = wiki / "Page.md"
+            logical = self.FRONT + "# Heading\n\n[[Missing target]]\n"
+            page.write_text(logical, encoding="utf-8")
+            lf_report = lint_engine.lint_vault(wiki, as_of="2026-10-18")
+
+            mixed_newlines = "".join(
+                line + ("\r\n" if index % 2 == 0 else "\r")
+                for index, line in enumerate(logical.splitlines())
+            )
+            page.write_bytes(b"\xef\xbb\xbf" + mixed_newlines.encode("utf-8"))
+            mixed_report = lint_engine.lint_vault(wiki, as_of="2026-10-18")
+
+        self.assertEqual(lf_report, mixed_report)
+
+    def test_wiki_relative_exclude_does_not_hide_parent_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            vault = Path(directory) / "vault"
+            wiki = vault / "wiki"
+            (vault / "assets").mkdir(parents=True)
+            wiki.mkdir()
+            (vault / "assets/plot.png").write_bytes(b"plot")
+            (wiki / "Page.md").write_text(
+                self.FRONT + "![plot](../assets/plot.png)\n", encoding="utf-8"
+            )
+            report = lint_engine.lint_vault(
+                wiki, as_of="2026-10-18", exclude=["assets/*"]
+            )
+
+        self.assertEqual([], report["dead_links"])
+        self.assertEqual(0, report["summary"]["excluded_paths"])
+
+    def test_source_relative_target_wins_before_parent_vault_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            vault = Path(directory) / "vault"
+            wiki = vault / "wiki"
+            wiki.mkdir(parents=True)
+            (wiki / "Reference.md").write_text(
+                self.FRONT + "# Local heading\n", encoding="utf-8"
+            )
+            (vault / "Reference.md").write_text("# Parent heading\n", encoding="utf-8")
+            (wiki / "Page.md").write_text(
+                self.FRONT
+                + "[local](Reference.md#Local%20heading)\n"
+                + "[parent](../Reference.md#Parent%20heading)\n",
+                encoding="utf-8",
+            )
+            report = lint_engine.lint_vault(wiki, as_of="2026-10-18")
+
+        self.assertEqual([], report["dead_links"])
+        self.assertEqual([], report["ambiguous_targets"])
+
+    def test_parent_gitignore_filters_ambiguity_by_canonical_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            vault = Path(directory) / "vault"
+            wiki = vault / "wiki"
+            (vault / "build").mkdir(parents=True)
+            (vault / "docs").mkdir()
+            wiki.mkdir()
+            (vault / ".gitignore").write_text("/build/\n", encoding="utf-8")
+            (vault / "build/Thing").write_text("artifact\n", encoding="utf-8")
+            (vault / "docs/Thing.md").write_text("# Thing\n", encoding="utf-8")
+            (wiki / "Page.md").write_text(self.FRONT + "[[Thing]]\n", encoding="utf-8")
+            report = lint_engine.lint_vault(wiki, as_of="2026-10-18")
+
+        self.assertEqual([], report["dead_links"])
+        self.assertEqual([], report["ambiguous_targets"])
+
+    def test_parent_symlinks_and_outside_paths_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            vault = base / "vault"
+            wiki = vault / "wiki"
+            outside = base / "outside"
+            wiki.mkdir(parents=True)
+            outside.mkdir()
+            (outside / "plot.png").write_bytes(b"plot")
+            (outside / "Reference.md").write_text("# Outside\n", encoding="utf-8")
+            try:
+                (vault / "assets").symlink_to(outside, target_is_directory=True)
+                (vault / "Reference.md").symlink_to(outside / "Reference.md")
+            except OSError:
+                self.skipTest("symlinks unavailable")
+            (wiki / "Page.md").write_text(
+                self.FRONT
+                + "![ancestor](../assets/plot.png)\n"
+                + "[file](../Reference.md#Outside)\n"
+                + "[escape](../../outside/Reference.md#Outside)\n",
+                encoding="utf-8",
+            )
+            report = lint_engine.lint_vault(wiki, as_of="2026-10-18")
+
+        self.assertEqual(3, len(report["dead_links"]))
+        self.assertEqual(
+            ["../../outside/Reference.md#Outside", "../Reference.md#Outside", "../assets/plot.png"],
+            sorted(item["target"] for item in report["dead_links"]),
+        )
+
+    def test_parent_junction_surrogate_is_not_traversed_or_read(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            vault = Path(directory) / "vault"
+            wiki = vault / "wiki"
+            junction = vault / "junction"
+            wiki.mkdir(parents=True)
+            junction.mkdir()
+            target = junction / "Reference.md"
+            target.write_text("# Outside\n", encoding="utf-8")
+            (wiki / "Page.md").write_text(
+                self.FRONT + "[outside](../junction/Reference.md#Outside)\n",
+                encoding="utf-8",
+            )
+            original_lstat = Path.lstat
+            original_read_text = Path.read_text
+
+            def junction_lstat(path: Path):
+                metadata = original_lstat(path)
+                if path == junction:
+                    return mock.Mock(
+                        st_mode=metadata.st_mode,
+                        st_reparse_tag=0xA0000003,
+                    )
+                return metadata
+
+            def guarded_read_text(path: Path, *args: object, **kwargs: object) -> str:
+                if path == target:
+                    raise AssertionError("junction target must not be read")
+                return original_read_text(path, *args, **kwargs)
+
+            with (
+                mock.patch.object(Path, "lstat", junction_lstat),
+                mock.patch.object(Path, "read_text", guarded_read_text),
+            ):
+                report = lint_engine.lint_vault(wiki, as_of="2026-10-18")
+
+        self.assertEqual(1, len(report["dead_links"]))
+        self.assertEqual("target-not-found", report["dead_links"][0]["reason"])
+
+    def test_scanned_markdown_file_swap_is_rejected_at_confined_open(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            vault = base / "vault"
+            wiki = vault / "wiki"
+            wiki.mkdir(parents=True)
+            page = wiki / "Page.md"
+            outside = base / "outside.md"
+            page.write_text(self.FRONT + "# Safe\n", encoding="utf-8")
+            outside_payload = (self.FRONT + "# Outside secret\n").encode("utf-8")
+            outside.write_bytes(outside_payload)
+            original_open_parent = transaction_module._open_parent_directory
+            original_read = transaction_module.os.read
+            original_read_text = Path.read_text
+            swap_exercised = False
+            outside_payload_read = False
+
+            def perform_swap() -> None:
+                nonlocal swap_exercised
+                swap_exercised = True
+                page.unlink()
+                page.symlink_to(outside)
+
+            def swap_parent_open(*args: object, **kwargs: object) -> tuple[int, str]:
+                descriptor, leaf = original_open_parent(*args, **kwargs)
+                relative = args[1] if len(args) > 1 else kwargs.get("relative")
+                if relative == "wiki/Page.md" and not swap_exercised:
+                    perform_swap()
+                return descriptor, leaf
+
+            def legacy_swap_read_text(
+                path: Path, *args: object, **kwargs: object
+            ) -> str:
+                nonlocal outside_payload_read
+                if path == page and not swap_exercised:
+                    perform_swap()
+                text = original_read_text(path, *args, **kwargs)
+                outside_payload_read = outside_payload_read or "Outside secret" in text
+                return text
+
+            def tracked_read(descriptor: int, size: int) -> bytes:
+                nonlocal outside_payload_read
+                block = original_read(descriptor, size)
+                outside_payload_read = outside_payload_read or outside_payload in block
+                return block
+
+            with (
+                mock.patch.object(
+                    transaction_module, "_open_parent_directory", swap_parent_open
+                ),
+                mock.patch.object(transaction_module.os, "read", tracked_read),
+                mock.patch.object(Path, "read_text", legacy_swap_read_text),
+            ):
+                report = lint_engine.lint_vault(wiki, as_of="2026-10-18")
+            page_is_symlink = page.is_symlink()
+
+        self.assertTrue(swap_exercised)
+        self.assertTrue(page_is_symlink)
+        self.assertFalse(outside_payload_read)
+        self.assertEqual(1, len(report["read_errors"]))
+        self.assertEqual("Page.md", report["read_errors"][0]["path"])
+        self.assertEqual(0, report["summary"]["pages_scanned"])
+
+    def test_parent_markdown_file_swap_is_a_controlled_fragment_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            vault = base / "vault"
+            wiki = vault / "wiki"
+            wiki.mkdir(parents=True)
+            parent = vault / "Reference.md"
+            outside = base / "outside.md"
+            parent.write_text("# Safe\n", encoding="utf-8")
+            outside_payload = b"# Outside secret heading\n"
+            outside.write_bytes(outside_payload)
+            (wiki / "Page.md").write_text(
+                self.FRONT + "[probe](../Reference.md#Outside%20secret%20heading)\n",
+                encoding="utf-8",
+            )
+            original_open_parent = transaction_module._open_parent_directory
+            original_read = transaction_module.os.read
+            swap_exercised = False
+            outside_payload_read = False
+
+            def swap_parent_open(*args: object, **kwargs: object) -> tuple[int, str]:
+                nonlocal swap_exercised
+                descriptor, leaf = original_open_parent(*args, **kwargs)
+                relative = args[1] if len(args) > 1 else kwargs.get("relative")
+                if relative == "Reference.md" and not swap_exercised:
+                    swap_exercised = True
+                    parent.unlink()
+                    parent.symlink_to(outside)
+                return descriptor, leaf
+
+            def tracked_read(descriptor: int, size: int) -> bytes:
+                nonlocal outside_payload_read
+                block = original_read(descriptor, size)
+                outside_payload_read = outside_payload_read or outside_payload in block
+                return block
+
+            with (
+                mock.patch.object(
+                    transaction_module, "_open_parent_directory", swap_parent_open
+                ),
+                mock.patch.object(transaction_module.os, "read", tracked_read),
+            ):
+                report = lint_engine.lint_vault(wiki, as_of="2026-10-18")
+            parent_is_symlink = parent.is_symlink()
+
+        self.assertTrue(swap_exercised)
+        self.assertTrue(parent_is_symlink)
+        self.assertFalse(outside_payload_read)
+        self.assertEqual([], report["read_errors"])
+        self.assertEqual(1, len(report["dead_links"]))
+        self.assertEqual(
+            "fragment-on-non-markdown-target", report["dead_links"][0]["reason"]
+        )
+
+    def test_parent_markdown_ancestor_swap_cannot_supply_fragment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            vault = base / "vault"
+            wiki = vault / "wiki"
+            parent_directory = vault / "docs"
+            outside_directory = base / "outside"
+            wiki.mkdir(parents=True)
+            parent_directory.mkdir()
+            outside_directory.mkdir()
+            parent = parent_directory / "Reference.md"
+            safe_directory = vault / "docs-safe"
+            parent.write_text("# Safe\n", encoding="utf-8")
+            outside_payload = b"# Outside secret heading\n"
+            (outside_directory / "Reference.md").write_bytes(outside_payload)
+            (wiki / "Page.md").write_text(
+                self.FRONT + "[probe](../docs/Reference.md#Outside%20secret%20heading)\n",
+                encoding="utf-8",
+            )
+            original_open_parent = transaction_module._open_parent_directory
+            original_read = transaction_module.os.read
+            original_read_text = Path.read_text
+            swap_exercised = False
+            outside_payload_read = False
+
+            def perform_swap() -> None:
+                nonlocal swap_exercised
+                swap_exercised = True
+                parent_directory.rename(safe_directory)
+                parent_directory.symlink_to(outside_directory, target_is_directory=True)
+
+            def swap_parent_open(*args: object, **kwargs: object) -> tuple[int, str]:
+                descriptor, leaf = original_open_parent(*args, **kwargs)
+                relative = args[1] if len(args) > 1 else kwargs.get("relative")
+                if relative == "docs/Reference.md" and not swap_exercised:
+                    perform_swap()
+                return descriptor, leaf
+
+            def legacy_swap_read_text(
+                path: Path, *args: object, **kwargs: object
+            ) -> str:
+                nonlocal outside_payload_read
+                if path == parent and not swap_exercised:
+                    perform_swap()
+                text = original_read_text(path, *args, **kwargs)
+                outside_payload_read = outside_payload_read or "Outside secret heading" in text
+                return text
+
+            def tracked_read(descriptor: int, size: int) -> bytes:
+                nonlocal outside_payload_read
+                block = original_read(descriptor, size)
+                outside_payload_read = outside_payload_read or outside_payload in block
+                return block
+
+            with (
+                mock.patch.object(
+                    transaction_module, "_open_parent_directory", swap_parent_open
+                ),
+                mock.patch.object(transaction_module.os, "read", tracked_read),
+                mock.patch.object(Path, "read_text", legacy_swap_read_text),
+            ):
+                report = lint_engine.lint_vault(wiki, as_of="2026-10-18")
+            parent_is_symlink = parent_directory.is_symlink()
+
+        self.assertTrue(swap_exercised)
+        self.assertTrue(parent_is_symlink)
+        self.assertFalse(outside_payload_read)
+        self.assertEqual(1, len(report["dead_links"]))
+
+    def test_parent_hidden_target_keeps_hidden_classification(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            vault = Path(directory) / "vault"
+            wiki = vault / "wiki"
+            (vault / ".raw").mkdir(parents=True)
+            wiki.mkdir()
+            (vault / ".raw/source.txt").write_text("source\n", encoding="utf-8")
+            (wiki / "Page.md").write_text(
+                self.FRONT + "[source](../.raw/source.txt)\n", encoding="utf-8"
+            )
+            report = lint_engine.lint_vault(wiki, as_of="2026-10-18")
+
+        self.assertEqual([], report["dead_links"])
+        self.assertEqual(1, len(report["hidden_target_links"]))
+        self.assertEqual(
+            "hidden-target-exists-not-indexed",
+            report["hidden_target_links"][0]["reason"],
+        )
+        self.assertEqual(".raw/source.txt", report["hidden_target_links"][0]["resolved_path"])
+
+    def test_vault_root_exclusions_still_remove_resolution_targets(self) -> None:
+        def lint_with_config(config: dict[str, object] | None = None, **options: object) -> dict:
+            with tempfile.TemporaryDirectory() as directory:
+                vault = Path(directory) / "vault"
+                (vault / "wiki/scratchpad").mkdir(parents=True)
+                (vault / "wiki/Page.md").write_text(
+                    self.FRONT + "[[Draft]]\n", encoding="utf-8"
+                )
+                (vault / "wiki/scratchpad/Draft.md").write_text(
+                    self.FRONT + "Draft.\n", encoding="utf-8"
+                )
+                if config is not None:
+                    (vault / ".vault-meta").mkdir()
+                    (vault / ".vault-meta/lint.json").write_text(
+                        json.dumps(config), encoding="utf-8"
+                    )
+                return lint_engine.lint_vault(vault, as_of="2026-10-18", **options)
+
+        direct = lint_with_config(exclude=["wiki/scratchpad/*"])
+        configured = lint_with_config({"exclude": ["wiki/scratchpad/*"]})
+        for report in (direct, configured):
+            self.assertEqual(1, len(report["dead_links"]))
+            self.assertEqual(1, report["summary"]["excluded_paths"])
+            self.assertEqual(1, report["summary"]["markdown_files_excluded"])
 
 
 class GitignoreDisambiguationTests(unittest.TestCase):

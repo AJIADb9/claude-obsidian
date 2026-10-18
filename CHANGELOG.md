@@ -7,6 +7,108 @@ implementation record for older releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Developer test cleanup no longer exposes a target that erases transaction
+  recovery journals. Doctor rejects unsafe metadata paths and checks both write
+  and search access without changing the selected vault.
+- Direct wiki-root lint resolves sibling attachments within the containing
+  vault while preserving report scope. Confined metadata reads reject file and
+  ancestor swaps before reading outside bytes. BM25 treats malformed UTF-8 as stale.
+- Semantic providers share a cloud-disabled local-model proof, exact model
+  selection and digest-bound cache identity. Tiling reports incomplete work
+  with exit 12 and preserves its previous cache after embedding failures,
+  including fresh vector dimension disagreements.
+- Provenance grouping uses identity lookups, and repeated claims share bounded
+  page verification and anchor parsing within each validation call.
+- Canvas permissions require explicit consent for destructive board edits.
+  Defuddle documentation describes extraction planning and local capture.
+  Distribution excludes tests for excluded historical benchmark helpers.
+- SessionStart also matches forked sessions on current Claude Code hosts while
+  retaining explicit context consent and read-only hook behavior.
+- Workflow catalog navigation ignores YAML comments and accepts supported
+  active property wikilinks through the shared frontmatter parser.
+- Retrieval skips corrupt chunk records while retaining healthy hits and counts
+  each rejected record. Strict page decoding prevents invalid UTF-8 from
+  matching a prior replacement character. JSON conversion-limit failures use
+  controlled cache, threshold and candidate errors or documented fallback.
+- Interrupted replacement recovery preserves externally deleted targets as
+  conflicts. Completed workflow replay rejects malformed receipts and write
+  shapes with controlled errors before mutation.
+- Lint resolves quoted aliases with commas and comments, balanced inline-link
+  labels and heading destinations, and comment-only empty sections. Malformed
+  bracket runs are scanned without repeated suffix searches.
+- Prefixing rejects malformed UTF-8 before provider or cache work. Local model
+  endpoints use numeric loopback rather than ambient localhost resolution.
+- Embedding and reranking disable ambient proxies and redirects, bound response
+  reads, and validate query, candidate and threshold inputs before provider or
+  cache work. Malformed UTF-8 caches and thresholds follow controlled errors.
+- The offline Save fixture enforces an explicit bounded source-word title
+  contract and exact note bodies. Canvas guidance uses the supported catalog
+  and distinguishes node edits from unsupported board file deletion or rename;
+  retrieval describes only supported providers.
+- Workflow catalogs and selected notes reject hidden paths. Completed replay
+  can verify committed content after disposable drafts are removed, without
+  relaxing bundle, approval or result-drift checks. Batch logs require real
+  calendar dates.
+- Completed transaction replay requires its retained journal and expanded
+  bundle, with matching result identity, write coverage and content hashes.
+- Lint recognizes protected-region-aware Setext headings in fragment resolution,
+  heading hierarchies and empty-section checks. Styled labels preserve visible
+  inline code; raw HTML blocks cannot manufacture Markdown heading matches.
+- Optional provider generation has bounded request work and a failure circuit
+  breaker. Unchanged chunk reuse validates the current record schema and
+  content invariants before skipping regeneration.
+- Namespace migration documents scope-aware disable, install, verification,
+  rollback and optional cleanup, including the legacy reinstall limitation.
+- Shared Markdown protection ignores comments, code and escaped syntax in
+  lint and workflow navigation. Valid angled and titled destinations resolve
+  consistently, and selected note updates cannot bypass catalog navigation.
+- Provider output is validated and serialized before publication. Malformed
+  Unicode falls back safely without discarding an unchanged ready index.
+- Starter and sample catalogs connect their structural pages. Query Quick has
+  an explicit evidence-based exit and read budget; Save can draft a missing
+  title for the existing review step.
+- Lint splits encoded Markdown paths before decoding, reports unscanned flat
+  vault content, distinguishes hidden source targets, and understands supported
+  heading paths, property links, PDF options and named Base embeds. Explicit
+  generated-page checks validate values without imposing a schema on adoption.
+- Canonical ledger writes respect the same 16 MiB envelope as their readers.
+  Capacity diagnostics and reviewed formatting compaction preserve existing
+  source identities and recoverable backups.
+- Canvas catalogs use `_index.md`; legacy journals remain recoverable. Generic
+  source/question routes preserve title case and spaces.
+- Default-off SessionStart exits before importing the CLI. CLI preference now
+  requires selected-vault identity and exact read-capability probes.
+- Defuddle guidance no longer treats an unchecked external executable or local
+  HTML input as enforcement of approved network destinations.
+- Provider prefixes bind cache reuse to the model and generation profile.
+  Haiku 5.5 uses an explicit bounded adaptive-thinking profile, with an optional
+  legacy model and safe refusal/truncation fallback.
+
+### Added
+
+- Offline Query/Save prompt evaluation with instruction hashes, explicit
+  response contracts and negative controls. It makes no provider requests and
+  keeps controlled prompt reasoning separate from operational skill acceptance.
+- Separate named workflow inspection/application for Save and Ingest, with
+  hash-bound catalog policy and explicit structural completeness results.
+- Static Canvas product-policy validation and honestly bounded Base text checks.
+- Offline labeled retrieval evaluation with recall, MRR, explicit denominators,
+  retained misses and an original multilingual fixture.
+- Explicit installed-model Ollama prefixes, with bounded proxy-free requests,
+  redirect refusal and cloud-disabled local-model preflight.
+- Pinned upstream reconciliation, native conformance procedures, canonical
+  methodology roles, glossary, consolidation and coordination recipes.
+- A required host compatibility release gate and the owner-qualified
+  `agricidaniel-obsidian` Claude adapter, with explicit legacy migration steps.
+
+### Removed
+
+- Ambient `claude -p` contextual prefix generation. Without an explicitly
+  configured API or local Ollama provider, prefixes remain synthetic; a
+  subscription CLI can no longer load unrelated tools or host context.
+
 ## [2.2.0] - 2026-09-10
 
 Backlog triage: lint scoping, lock recovery, host validation, the `bin/`

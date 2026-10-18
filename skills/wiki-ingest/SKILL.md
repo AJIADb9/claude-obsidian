@@ -131,11 +131,19 @@ per-source/per-worker applies.
 ## Preview, apply, and recover
 
 ```bash
-python3 "$CORE" transaction inspect /path/to/ingest-bundle.json --vault /path/to/vault
+python3 "$CORE" workflow inspect /path/to/ingest-bundle.json --vault /path/to/vault
 # Set APPROVAL_SHA256 to the inspect result's approval_sha256 after review.
-python3 "$CORE" transaction apply /path/to/ingest-bundle.json --vault /path/to/vault \
+python3 "$CORE" workflow apply /path/to/ingest-bundle.json --vault /path/to/vault \
   --approved-plan-sha256 "$APPROVAL_SHA256"
 ```
+
+The workflow gate reports `storage_valid` separately from `workflow_complete`.
+A recoverable storage bundle can still omit required knowledge outcomes; apply
+only when both pass. The default active catalog is `wiki/index.md`. For a
+methodology MOC, include `workflow: {"catalogs": ["wiki/path/to/MOC.md"]}` in
+the bundle, with that catalog's expected hash and write. Log and hot-cache
+writes remain required; keep the hot cache at most 500 words. See the
+[workflow acceptance guide](../../docs/workflow-acceptance.md).
 
 Show the user the inputs, budget consumed, create/replace paths, raw captures,
 claim assessments, contradictions, and skipped items before apply. Canonical

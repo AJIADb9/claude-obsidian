@@ -20,7 +20,7 @@ from .paths import (
     is_relative_to,
     resolve_vault_root,
 )
-from .transaction import MAX_TRANSACTION_RUNTIME_JSON_BYTES
+from .limits import MAX_TRANSACTION_RUNTIME_JSON_BYTES
 
 
 MAX_CONTEXT_BYTES = 32 * 1024

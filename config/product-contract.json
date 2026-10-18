@@ -160,6 +160,14 @@
   },
   "release_gates": [
     {
+      "id": "host-compatibility",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "evidence": "Validate the clean extracted artifact with the current target host validator and record its version, output and exit status separately from isolated install/load/discovery tests. Existing identity validation failures remain blockers to promotion until the owner chooses and verifies a compatible migration. Do not rename public identities or silently waive a failed validator."
+      }
+    },
+    {
       "id": "artifact-safety",
       "required": true,
       "verification": {

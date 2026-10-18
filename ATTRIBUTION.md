@@ -59,6 +59,23 @@ the designs are theirs.
 | Nomic `search_query` and `search_document` task prefixes in the reranker, including the `with_task_prefix` helper and cache-scheme invalidation | maartengoet | https://github.com/AgriciDaniel/claude-obsidian/pull/77 |
 | BM25 fallback order preserved in reranker no-op paths (`bm25_score` before `score`) | vinsocci | https://github.com/AgriciDaniel/claude-obsidian/pull/62 |
 
+The unreleased local reliability update also draws on the following diagnosed
+fixes and proposals. These credits do not imply that a pull request was merged
+or accepted without revision.
+
+| Change or design input | Contributor | Pull request |
+|--------|-------------|--------------|
+| Split encoded Markdown destinations before decoding their path | Ychris12138 | https://github.com/AgriciDaniel/claude-obsidian/pull/194 |
+| Canvas `_index.md`, title-preserving routes and legacy journal compatibility | Marcos64s | https://github.com/AgriciDaniel/claude-obsidian/pull/199 |
+| Haiku 5.5 model and cache-floor migration, revised here with explicit thinking and output limits | hphsu | https://github.com/AgriciDaniel/claude-obsidian/pull/195 |
+| Optional local Ollama prefix tier, independently reimplemented here with bounded transport and local-model preflight | vinsocci | https://github.com/AgriciDaniel/claude-obsidian/pull/63 |
+| Dataview queries use vault-relative content paths | miraclemanza | https://github.com/AgriciDaniel/claude-obsidian/pull/46 |
+
+Pinned ecosystem references, licenses and intentional differences are recorded
+in [config/upstream-references.json](config/upstream-references.json). The
+update's original examples do not incorporate restricted third-party plugin
+implementations or personal contributor vaults.
+
 ---
 
 ## claude-obsidian

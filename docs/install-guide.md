@@ -2,7 +2,7 @@
 
 claude-obsidian has two independent parts:
 
-1. the product package—skills, portable core, Claude adapter, and templates;
+1. the product package, skills, portable core, Claude adapter, and templates;
 2. a user-owned Obsidian vault containing mutable knowledge.
 
 Do not use an installed plugin cache as the vault. A source clone is suitable
@@ -16,17 +16,23 @@ for development, but a normal user vault should be a separate directory.
 - Bash for installer and optional legacy-extension scripts
 - Git only for source development, release builds, or explicit checkpoints
 - On Windows: WSL for vault writes; native Windows supports read-only
-  inspection and dry-runs — see the [Windows and WSL guide](windows-wsl.md)
+  inspection and dry-runs, see the [Windows and WSL guide](windows-wsl.md)
 
 ## Claude Code marketplace
 
-Add the artifact-clean public catalog and install the namespaced plugin:
+After this candidate is published, add the artifact-clean public catalog and
+install the namespaced plugin:
 
 ```bash
 claude plugin marketplace add AgriciDaniel/claude-obsidian
-claude plugin install claude-obsidian@agricidaniel-claude-obsidian
+claude plugin install agricidaniel-obsidian@agricidaniel-claude-obsidian
 claude plugin list
 ```
+
+This local candidate uses the new `agricidaniel-obsidian` identity. The live
+marketplace can still serve an earlier identity until publication. For local
+verification use `--plugin-dir` below; see the
+[namespace migration](namespace-migration.md) before changing an installation.
 
 The private development tree deliberately has no
 `.claude-plugin/marketplace.json`; it can contain contributor-vault state and
@@ -35,8 +41,8 @@ that manifest only into its audited output. The public default branch must be
 promoted from the extracted audited artifact before these marketplace commands
 are advertised for a new version.
 
-Invoke skills as `/claude-obsidian:wiki`,
-`/claude-obsidian:wiki-ingest`, and `/claude-obsidian:save`.
+Invoke skills as `/agricidaniel-obsidian:wiki`,
+`/agricidaniel-obsidian:wiki-ingest`, and `/agricidaniel-obsidian:save`.
 
 The plugin cache contains read-only product assets. Run Claude from the user
 vault, set `CLAUDE_OBSIDIAN_VAULT`, or pass `--vault` to portable commands.
@@ -117,14 +123,14 @@ python3 scripts/claude-obsidian.py init <new-vault> \
 
 The generated vault contains:
 
-- `.gitignore`—privacy-safe defaults excluding `.vault-meta/` runtime state,
+- `.gitignore`, privacy-safe defaults excluding `.vault-meta/` runtime state,
   Obsidian workspace state, and live `.mcp.json` launch configuration;
-- `.claude-obsidian.json`—workspace identity and vault selection;
-- `inbox/`—visible source intake;
-- `.raw/`—immutable source payloads and legacy delta manifest;
-- `wiki/`—index, log, hot cache, overview, and generated notes;
-- `.obsidian/`—minimal non-destructive Obsidian defaults;
-- `.vault-meta/`—ignored runtime state created when needed.
+- `.claude-obsidian.json`, workspace identity and vault selection;
+- `inbox/`, visible source intake;
+- `.raw/`, immutable source payloads and legacy delta manifest;
+- `wiki/`, index, log, hot cache, overview, and generated notes;
+- `.obsidian/`, minimal non-destructive Obsidian defaults;
+- `.vault-meta/`, ignored runtime state created when needed.
 
 Initialization does not add an upstream Git remote or install community
 plugins. Open the new directory through Obsidian's vault picker.
@@ -178,6 +184,11 @@ python3 scripts/claude-obsidian.py doctor --vault <vault>
 python3 scripts/claude-obsidian.py contracts --verify --vault <vault>
 ```
 
+Doctor checks metadata directory safety and write/search permissions without
+creating files. A missing `.vault-meta` is ready only when the vault directory
+permits its creation. Readiness is a point-in-time diagnostic; transactions
+still recheck paths, conflicts and permissions before applying changes.
+
 ## Optional configuration
 
 The portable filesystem transport always remains available. Detect an active,
@@ -223,6 +234,12 @@ metadata unless a separately configured adapter is explicitly approved.
 
 ## Upgrade and rollback
 
+Existing `claude-obsidian@agricidaniel-claude-obsidian` installations need the
+explicit [namespace migration sequence](namespace-migration.md#published-upgrade):
+record the scope, disable the old entry, verify the new adapter, and retain the
+disabled old installation until rollback is no longer needed. The uninstall
+commands below apply to the new identity only.
+
 Upgrade product code independently from the user vault. Before a migration or
 large ingest, make a normal backup or snapshot. Knowledge writes are journaled;
 run recovery after an interrupted operation:
@@ -251,7 +268,7 @@ from its vault-local pending record.
 Remove the host integration, not the vault:
 
 ```bash
-claude plugin uninstall claude-obsidian@agricidaniel-claude-obsidian
+claude plugin uninstall agricidaniel-obsidian@agricidaniel-claude-obsidian
 claude plugin marketplace remove agricidaniel-claude-obsidian
 ```
 

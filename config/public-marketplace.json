@@ -13,7 +13,7 @@
       "description": "Local-first Agent Skills package and Claude Code plugin for source-cited Obsidian knowledge bases. Includes recoverable transactions, deterministic lint and retrieval, provenance ledgers, explicit vault adoption, offline-first capture foundations, and methodology modes.",
       "homepage": "https://github.com/AgriciDaniel/claude-obsidian",
       "license": "MIT",
-      "name": "claude-obsidian",
+      "name": "agricidaniel-obsidian",
       "repository": "https://github.com/AgriciDaniel/claude-obsidian",
       "source": "./"
     }

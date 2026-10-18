@@ -28,9 +28,11 @@ ALLOWED_HOOK_EVENTS = {
 }
 ALLOWED_HOOK_TYPES = {"command", "prompt", "http", "mcp_tool", "agent"}
 SESSION_START_HOOK_TYPES = {"command", "mcp_tool"}
-SESSION_START_MATCHERS = {"startup", "resume", "clear", "compact"}
+SESSION_START_MATCHERS = {"startup", "resume", "clear", "compact", "fork"}
 PORTABLE_SKILL_KEYS = ("name", "description")
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+RESERVED_PLUGIN_PREFIXES = ("claude-", "anthropic-", "anthropics-", "cc-plugin-")
+RESERVED_PLUGIN_NAMES = frozenset({"claude", "anthropic", "anthropics", "claude-code", "claude-mods"})
 MARKETPLACE_TEMPLATE = "config/public-marketplace.json"
 MARKETPLACE_PATH = ".claude-plugin/marketplace.json"
 YAML_PLAIN_FORBIDDEN_START = frozenset("-?:,[]{}#&*!|>'\"%@`")
@@ -224,7 +226,7 @@ def _validate_skills(root: Path) -> list[dict[str, str]]:
             if line.lstrip().startswith("```"):
                 in_code_fence = not in_code_fence
                 continue
-            if not in_code_fence or "transaction apply" not in line:
+            if not in_code_fence or not re.search(r"(?:transaction|workflow)\s+apply\b", line):
                 continue
             command_window = " ".join(lines[index : index + 3])
             if "--approved-plan-sha256" not in command_window:
@@ -232,7 +234,7 @@ def _validate_skills(root: Path) -> list[dict[str, str]]:
                     _finding(
                         "unapproved_apply_example",
                         relative,
-                        f"line {index + 1} transaction apply omits --approved-plan-sha256",
+                        f"line {index + 1} apply omits --approved-plan-sha256",
                     )
                 )
 
@@ -258,7 +260,7 @@ def _validate_documented_apply_examples(root: Path) -> list[dict[str, str]]:
     paths.extend(sorted((root / "skills").glob("**/*.md")))
     findings: list[dict[str, str]] = []
     mutation = re.compile(
-        r"claude-obsidian\.py\s+(?:init|adopt|migrate|mode\s+set|extension\s+dragonscale|capture\s+apply)\b"
+        r"claude-obsidian\.py\s+(?:init|adopt|migrate|mode\s+set|extension\s+dragonscale|capture\s+apply|capacity\s+compact)\b"
     )
     for path in paths:
         if not path.is_file():
@@ -469,6 +471,13 @@ def _validate_versions(root: Path) -> list[dict[str, str]]:
     if not isinstance(plugin_name, str) or NAME_RE.fullmatch(plugin_name) is None:
         findings.append(
             _finding("invalid_plugin_name", ".claude-plugin/plugin.json", "name")
+        )
+    elif plugin_name in RESERVED_PLUGIN_NAMES or plugin_name.startswith(RESERVED_PLUGIN_PREFIXES):
+        findings.append(
+            _finding(
+                "reserved_plugin_name", ".claude-plugin/plugin.json",
+                "the current Claude host reserves this plugin identity; choose an owner-qualified name",
+            )
         )
     if not isinstance(plugin_version, str) or not plugin_version:
         findings.append(
