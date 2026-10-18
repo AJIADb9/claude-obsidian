@@ -51,15 +51,27 @@
     },
     {
       "mode": "0644",
+      "path": ".github/dependabot.yml",
+      "sha256": "3e4c6e4bcb4fbc6f7e09b5c62975a019dc1ee4b5f595c1607ba0f32d4836c674",
+      "size": 486
+    },
+    {
+      "mode": "0644",
       "path": ".github/pull_request_template.md",
       "sha256": "d8ecdfe054b7974e335ad7f928d34c2b60a3a7e9a95e037219ebaa9038cd2c2d",
       "size": 1702
     },
     {
       "mode": "0644",
+      "path": ".github/workflows/codeql.yml",
+      "sha256": "8b0f48ee83154ae61c6e4213195731bfaa7c60b0975049bf8c58e48fe6a54bab",
+      "size": 1143
+    },
+    {
+      "mode": "0644",
       "path": ".github/workflows/test.yml",
-      "sha256": "adcb8dc1a696cc15f9c886c5e0e8a8ec3496e6ad82e0fd147bc8050eef698df3",
-      "size": 4058
+      "sha256": "090b0c7df6593d62ba3ca179b7912e8fbc98c752c81024d5ec4130efbb289c64",
+      "size": 4185
     },
     {
       "mode": "0644",
@@ -88,8 +100,8 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "eafee0fba716706aafd1cf9f89486c9109566a0d749ee5b90aa479332694b92d",
-      "size": 31242
+      "sha256": "b54d20ef6098f4fd0deb2173df8effbb33c136e50b1fba5cf46f54c579e1d5f5",
+      "size": 31680
     },
     {
       "mode": "0644",
@@ -436,7 +448,7 @@
     {
       "mode": "0644",
       "path": "config/upstream-references.json",
-      "sha256": "b9109efa0d7931e0dd97997c6f4f7b7774f872beaacd999cf429eea9dbef0af1",
+      "sha256": "8578d7d6c34d46ba3f60d7d8b1a456412268e57e5116a9b218500c3f94bfe559",
       "size": 19608
     },
     {
@@ -502,8 +514,8 @@
     {
       "mode": "0644",
       "path": "docs/upstream-references.md",
-      "sha256": "7beac5e357dfca97e3d313dea0455e76d9702206e30209ea95259b433f4d33a6",
-      "size": 2230
+      "sha256": "93030e7ecb9799c4bd34cf6a82a0cc922bba932cb1b41cd53d75566d302e2376",
+      "size": 2333
     },
     {
       "mode": "0644",
@@ -748,8 +760,8 @@
     {
       "mode": "0644",
       "path": "skills/obsidian-bases/SKILL.md",
-      "sha256": "d698aec17a08ff52557c30eb5fcc446e629ef048ad386545804e2cc025163113",
-      "size": 7303
+      "sha256": "3cd5676434bc86618802e07cf44ff9c7a5d4c10fb7ecb412775b9fef9cfa82be",
+      "size": 7413
     },
     {
       "mode": "0644",
@@ -1529,6 +1541,6 @@
     }
   },
   "schema_version": 1,
-  "source_commit": "b0260b3a02e777b90b5b6b016ae816b24aed1d0c",
-  "source_date_epoch": 1792344208
+  "source_commit": "82c75b11daf33f5a92865ec933f16e7dcb04f390",
+  "source_date_epoch": 1792344722
 }
