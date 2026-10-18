@@ -5,13 +5,14 @@ or replace the user's review of selected content and sources.
 """
 from __future__ import annotations
 
-import copy
 import hashlib
+import json
 import re
 import urllib.parse
 from datetime import date
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
+from .hook_adapter import MAX_CONTEXT_BYTES
 from .json_utils import strict_json_loads
 from .lint_engine import _parse_frontmatter, _yaml_scalar
 from .markdown_links import iter_markdown_links, mask_protected_regions
@@ -27,6 +28,8 @@ SUPPORTED_WORKFLOWS = frozenset({'save', 'ingest'})
 _HEADER = re.compile(r'\A---\r?\n.*?\r?\n---(?:\r?\n|$)', re.S)
 _LOG = re.compile(r'^## \[(\d{4}-\d{2}-\d{2})\] (save|ingest)(?:\s|\||$)', re.M)
 _WIKI_LINK = re.compile(r'\[\[([^\]\n]+)\]\]')
+_DEFAULT_CATALOG = 'wiki/index.md'
+_LEDGERS = ('wiki/meta/ledgers/source-ledger.json', 'wiki/meta/ledgers/claim-ledger.json')
 
 
 def freeze_bundle(bundle_or_path: Mapping[str, Any] | Path | str) -> dict[str, Any]:
@@ -47,6 +50,8 @@ def _validate_workflow_write_shape(bundle: Mapping[str, Any]) -> None:
             raise TransactionValidationError('INVALID_WRITE', f'write {index} must be an object')
         if not isinstance(write.get('path'), str):
             raise TransactionValidationError('INVALID_WRITE', f'write {index} must contain a string path')
+        if not isinstance(write.get('mode'), str) or write['mode'] not in {'create', 'replace'}:
+            raise TransactionValidationError('INVALID_WRITE_MODE', f'write {index} mode must be create or replace')
         has_inline = 'content' in write
         has_file = 'content_file' in write
         if has_inline == has_file:
@@ -85,7 +90,12 @@ def _undo_generated_address(data: bytes, write: Mapping[str, Any], bundle: Mappi
 
 def _freeze_loaded_bundle(bundle: dict[str, Any], directory: Path, *, replay_vault: Path | None = None) -> dict[str, Any]:
     _validate_workflow_write_shape(bundle)
-    frozen = copy.deepcopy(bundle)
+    try:
+        # The bundle is already JSON data; a C-level round trip copies it
+        # without Python recursion limits on deeply nested extra fields.
+        frozen = json.loads(json.dumps(bundle))
+    except (RecursionError, TypeError, ValueError) as exc:
+        raise TransactionValidationError('INVALID_BUNDLE', 'bundle nesting exceeds the supported depth') from exc
     for write in frozen['writes']:
         if 'content_file' in write:
             if not isinstance(write.get('sha256'), str):
@@ -117,6 +127,40 @@ def _freeze_loaded_bundle(bundle: dict[str, Any], directory: Path, *, replay_vau
 
 def _body(text: str) -> str:
     return _HEADER.sub('', text, count=1).lstrip()
+
+
+def _log_entry_split(body: str) -> tuple[list[str], int | None]:
+    """Return body lines and the index of the first level-2 heading (an entry)."""
+    lines = body.splitlines(keepends=True)
+    return lines, next((i for i, line in enumerate(lines) if line.startswith('## ')), None)
+
+
+def _log_preserves_history(previous: str, prospective: str, entry: int | None) -> bool:
+    """Existing entries stay unchanged after the new one; other lines keep their order.
+
+    The title and introduction above the first existing entry may surround the
+    new entry, so a freshly initialized log accepts an entry directly below its
+    seeded header. No existing line may be dropped or reordered.
+    """
+    old_lines, old_entry = _log_entry_split(previous)
+    new_lines = prospective.splitlines(keepends=True)
+    if old_entry is not None:
+        history = ''.join(old_lines[old_entry:]).rstrip()
+        if entry is None or history not in ''.join(new_lines[entry + 1:]):
+            return False
+    remaining = iter(line.rstrip('\r\n') for line in new_lines)
+    preamble = old_lines if old_entry is None else old_lines[:old_entry]
+    return all(any(line == candidate for candidate in remaining)
+               for line in (item.rstrip('\r\n') for item in preamble) if line.strip())
+
+
+def _ledger_has_sources(text: str) -> bool:
+    try:
+        document = strict_json_loads(text)
+    except (ValueError, RecursionError):
+        return False
+    sources = document.get('sources') if isinstance(document, dict) else None
+    return isinstance(sources, (dict, list)) and bool(sources)
 
 
 def _catalog_path(value: Any) -> bool:
@@ -202,6 +246,16 @@ def inspect_workflow(vault: Path | str, bundle_or_path: Mapping[str, Any] | Path
     if raw_writes and operation in SUPPORTED_WORKFLOWS:
         if not any(path in writes for path in catalogs):
             fail('MISSING_CATALOG_WRITE', '', 'named workflow requires a hash-bound declared active catalog write')
+        # An active catalog is the root index or a page that already exists
+        # (a hash-bound replace). A catalog created by this bundle must itself
+        # be reachable from an active catalog, so a throwaway page cannot
+        # stand in for vault navigation.
+        active = [p for p in catalogs if p in writes
+                  and (p == _DEFAULT_CATALOG or writes[p].get('mode') == 'replace')]
+        for path in catalogs:
+            if path in writes and path not in active and not any(
+                    _links_to(writes[a].get('content', ''), path, a) for a in active):
+                fail('INACTIVE_CATALOG', path, 'a new catalog needs a path-qualified link from wiki/index.md or an existing declared catalog')
         for required in ('wiki/log.md', 'wiki/hot.md'):
             if required not in writes:
                 fail('MISSING_COUPLED_WRITE', required, 'named workflow requires a batch log and bounded hot context')
@@ -210,12 +264,14 @@ def inspect_workflow(vault: Path | str, bundle_or_path: Mapping[str, Any] | Path
             fail('EMPTY_HOT_CONTEXT', 'wiki/hot.md', 'hot context must contain the reviewed recent context')
         if len(_body(hot).split()) > 500:
             fail('HOT_CONTEXT_TOO_LARGE', 'wiki/hot.md', 'hot context exceeds 500 words')
+        elif len(hot.encode('utf-8')) > MAX_CONTEXT_BYTES:
+            fail('HOT_CONTEXT_TOO_LARGE', 'wiki/hot.md', f'hot context exceeds the {MAX_CONTEXT_BYTES}-byte session context bound')
         log = writes.get('wiki/log.md', {}).get('content', '')
         if not _body(log).strip():
             fail('INVALID_BATCH_LOG', 'wiki/log.md', 'batch log must contain a newest operation entry')
         if log:
-            first = _body(log).splitlines()[0] if _body(log) else ''
-            match = _LOG.match(first)
+            lines, entry = _log_entry_split(_body(log))
+            match = _LOG.match(lines[entry]) if entry is not None else None
             valid_date = False
             if match is not None:
                 try:
@@ -225,8 +281,11 @@ def inspect_workflow(vault: Path | str, bundle_or_path: Mapping[str, Any] | Path
                     pass
             if not valid_date or match is None or match.group(2) != operation:
                 fail('INVALID_BATCH_LOG', 'wiki/log.md', 'first log entry must name this save or ingest operation with an ISO date')
-            old = read_vault_regular(Path(vault), 'wiki/log.md', limit=16 * 1024 * 1024)
-            if old and _completed_plan is None:
+            # Completed replay is checked against its retained result; the
+            # current log is not an input there and is never read.
+            old = None if _completed_plan is not None else read_vault_regular(
+                Path(vault), 'wiki/log.md', limit=16 * 1024 * 1024)
+            if old:
                 try:
                     previous = _body(old.decode('utf-8'))
                 except UnicodeDecodeError as exc:
@@ -234,8 +293,8 @@ def inspect_workflow(vault: Path | str, bundle_or_path: Mapping[str, Any] | Path
                         'WORKFLOW_LOG_NOT_TEXT',
                         'existing wiki/log.md must be valid UTF-8 text',
                     ) from exc
-                if previous and (previous not in _body(log) or _body(log) == previous):
-                    fail('LOG_HISTORY_NOT_PRESERVED', 'wiki/log.md', 'prepend a new batch entry and retain the existing log body')
+                if previous and not _log_preserves_history(previous, _body(log), entry):
+                    fail('LOG_HISTORY_NOT_PRESERVED', 'wiki/log.md', 'add the new entry above every existing entry and keep the existing log lines unchanged')
         candidates = [p for p in writes if p.startswith('wiki/') and p.endswith('.md')
                    and p not in {'wiki/hot.md', 'wiki/log.md', 'wiki/overview.md'} and p not in catalogs
                    and not p.startswith('wiki/meta/')]
@@ -249,9 +308,18 @@ def inspect_workflow(vault: Path | str, bundle_or_path: Mapping[str, Any] | Path
         if operation == 'save' and not selected:
             fail('MISSING_SELECTED_NOTE', '', 'save must include the selected canonical note')
         if operation == 'ingest':
-            for p in ('wiki/meta/ledgers/source-ledger.json', 'wiki/meta/ledgers/claim-ledger.json'):
+            for p in _LEDGERS:
                 if p not in writes:
                     fail('MISSING_PROVENANCE_WRITE', p, 'ingest must include the reviewed source and claim ledger pair')
+            expected = frozen.get('expected_hashes')
+            expected = expected if isinstance(expected, dict) else {}
+            prospective = storage.get('hashes') if isinstance(storage.get('hashes'), dict) else {}
+            present = [p for p in _LEDGERS if p in writes]
+            if present and all(prospective.get(p) == expected.get(p) for p in present):
+                fail('UNCHANGED_PROVENANCE', '', 'ingest must record its evidence in a changed source or claim ledger')
+            has_raw = any(p.startswith('.raw/') and p != '.raw/.manifest.json' for p in writes)
+            if not has_raw and not _ledger_has_sources(writes.get(_LEDGERS[0], {}).get('content', '')):
+                fail('MISSING_INGEST_SOURCE', '', 'ingest needs a create-only .raw/ source or a recorded source in the source ledger')
     return {'schema': 'claude-obsidian.workflow-plan.v1', 'storage_valid': True,
             'workflow_complete': not findings, 'workflow_findings': findings,
             'semantic_review': 'required', 'plan': storage,
@@ -278,7 +346,7 @@ def apply_workflow(vault: Path | str, bundle_or_path: Mapping[str, Any] | Path |
             or completed_plan.get('schema') != RESULT_SCHEMA
             or completed_plan.get('status') != 'complete'
             or completed_plan.get('operation_id') != operation_id
-            or completed_plan.get('operation_type') != bundle.get('operation_type')
+            or not isinstance(completed_plan.get('operation_type'), str)
             or not isinstance(completed_plan.get('bundle_sha256'), str)
             or re.fullmatch(r'[0-9a-f]{64}', completed_plan['bundle_sha256']) is None
             or not isinstance(completed_plan.get('expanded_bundle_sha256'), str)
@@ -289,6 +357,10 @@ def apply_workflow(vault: Path | str, bundle_or_path: Mapping[str, Any] | Path |
             or any(not isinstance(path, str) for path in completed_plan['changed_paths'])
         ):
             raise TransactionRecoveryError('CORRUPT_RESULT', 'completed workflow result metadata is invalid')
+        if completed_plan['operation_type'] != bundle.get('operation_type'):
+            # Same contract as transaction apply: another bundle under a
+            # completed operation ID is a reuse conflict, not corruption.
+            raise TransactionConflict('OPERATION_ID_REUSED', f'operation_id {operation_id!r} already completed with another bundle')
     frozen = _freeze_loaded_bundle(bundle, directory, replay_vault=Path(vault) if completed_plan is not None else None)
     report = inspect_workflow(vault, frozen, _completed_plan=completed_plan)
     if not report['workflow_complete']:

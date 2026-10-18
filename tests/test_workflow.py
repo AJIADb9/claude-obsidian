@@ -1,6 +1,7 @@
 """Observe workflow coupling independently of generic transaction safety."""
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -10,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from claude_obsidian.transaction import BUNDLE_SCHEMA, RESULT_SCHEMA, TransactionError, inspect_bundle
+from claude_obsidian.ledgers import stable_source_id
 from claude_obsidian.workflow import apply_workflow, inspect_workflow
 
 
@@ -45,6 +47,11 @@ class WorkflowTests(unittest.TestCase):
 
     def test_complete_alternative_moc_applies_with_reviewed_hash(self):
         bundle = self.bundle(catalog='wiki/mocs/Projects.md')
+        moc = self.vault / 'wiki/mocs/Projects.md'
+        moc.parent.mkdir(parents=True)
+        moc.write_text('# Catalog\n')
+        bundle['writes'][1]['mode'] = 'replace'
+        bundle['expected_hashes']['wiki/mocs/Projects.md'] = hashlib.sha256(moc.read_bytes()).hexdigest()
         result = inspect_workflow(self.vault, bundle)
         self.assertTrue(result['workflow_complete'], result)
         applied = apply_workflow(self.vault, bundle, approved_plan_sha256=result['approval_sha256'])
@@ -602,6 +609,8 @@ class WorkflowTests(unittest.TestCase):
         bundle['writes'][0].pop('content')
         bundle['writes'][0].update(content_file='note.md', sha256=hashlib.sha256(draft.read_bytes()).hexdigest())
         bundle['address_requests'] = [{'path': 'wiki/concepts/Example.md', 'prefix': prefix}]
+        bundle['writes'].append({'path': '.raw/articles/example.md', 'mode': 'create', 'content': '# Source\n'})
+        bundle['expected_hashes']['.raw/articles/example.md'] = None
         for name, field in (('source', 'sources'), ('claim', 'claims')):
             path = f'wiki/meta/ledgers/{name}-ledger.json'
             content = json.dumps({'schema': f'claude-obsidian.{name}-ledger.v1',
@@ -699,6 +708,204 @@ class WorkflowTests(unittest.TestCase):
             bundle = self.bundle()
             bundle['writes'][index]['content'] = ''
             self.assertFalse(inspect_workflow(self.vault, bundle)['workflow_complete'])
+
+    def init_vault(self):
+        vault = Path(self.temporary.name) / 'seeded'
+        command = [sys.executable, '-B', str(ROOT / 'scripts/claude-obsidian.py'), 'init', str(vault),
+                   '--operation-id', 'init-seed', '--generated-at', '2026-10-18T00:00:00Z']
+        plan = json.loads(subprocess.run(command, capture_output=True, text=True, check=True, timeout=60).stdout)
+        subprocess.run(command + ['--apply', '--approved-plan-sha256', plan['approved_plan_sha256']],
+                       capture_output=True, text=True, check=True, timeout=60)
+        return vault
+
+    def seeded_save(self, vault, log, *, operation_id='seeded-save', hot_body='\nSaved Example.\n'):
+        read = lambda path: (vault / path).read_text(encoding='utf-8')
+        index = read('wiki/index.md').replace('- No concepts indexed yet.', '- [[concepts/Example]]')
+        writes = [
+            {'path': 'wiki/concepts/Example.md', 'mode': 'create', 'content': '# Example\n\nSelected content.\n'},
+            {'path': 'wiki/index.md', 'mode': 'replace', 'content': index},
+            {'path': 'wiki/log.md', 'mode': 'replace', 'content': log},
+            {'path': 'wiki/hot.md', 'mode': 'replace', 'content': read('wiki/hot.md') + hot_body},
+        ]
+        expected = {w['path']: (hashlib.sha256((vault / w['path']).read_bytes()).hexdigest()
+                                if (vault / w['path']).exists() else None) for w in writes}
+        return {'schema': BUNDLE_SCHEMA, 'operation_id': operation_id, 'operation_type': 'save',
+                'expected_hashes': expected, 'writes': writes}
+
+    def test_seeded_log_accepts_entry_below_its_title_and_preserves_history(self):
+        vault = self.init_vault()
+        seeded = (vault / 'wiki/log.md').read_text(encoding='utf-8')
+        intro = 'Newest completed operations appear first.\n\n'
+        self.assertIn(intro, seeded)
+        entry = '## [2026-10-18] save | Example\n\n- Saved [[concepts/Example]].\n\n'
+        first_log = seeded.replace(intro, intro + entry, 1)
+        bundle = self.seeded_save(vault, first_log)
+        report = inspect_workflow(vault, bundle)
+        self.assertTrue(report['workflow_complete'], report['workflow_findings'])
+        apply_workflow(vault, bundle, approved_plan_sha256=report['approval_sha256'])
+        self.assertEqual(first_log, (vault / 'wiki/log.md').read_text(encoding='utf-8'))
+
+        def second(log):
+            follow = self.seeded_save(vault, log, operation_id='seeded-save-2')
+            follow['writes'] = [w for w in follow['writes'] if w['path'] != 'wiki/concepts/Example.md']
+            follow['expected_hashes'].pop('wiki/concepts/Example.md')
+            follow['writes'].insert(0, {'path': 'wiki/concepts/Example.md', 'mode': 'replace', 'content': '# Example\n\nRevised.\n'})
+            follow['expected_hashes']['wiki/concepts/Example.md'] = hashlib.sha256(
+                (vault / 'wiki/concepts/Example.md').read_bytes()).hexdigest()
+            follow['writes'][1]['content'] = (vault / 'wiki/index.md').read_text(encoding='utf-8')
+            return {x['code'] for x in inspect_workflow(vault, follow)['workflow_findings']}
+
+        newer = '## [2026-10-19] save | Example revision\n\n'
+        self.assertEqual(set(), second(first_log.replace(intro, intro + newer, 1)))
+        # The prior entry may not be rewritten, dropped, or moved above the new one.
+        self.assertIn('LOG_HISTORY_NOT_PRESERVED', second(first_log.replace(intro + entry, intro + newer, 1)))
+        self.assertIn('LOG_HISTORY_NOT_PRESERVED', second(first_log.replace('- Saved', '- Edited', 1).replace(intro, intro + newer, 1)))
+        moved = first_log.replace(entry, '', 1).replace('Navigation:', entry + newer + 'Navigation:', 1)
+        self.assertIn('LOG_HISTORY_NOT_PRESERVED', second(moved))
+        self.assertIn('LOG_HISTORY_NOT_PRESERVED', second(first_log.replace('# Wiki Log\n', '', 1).replace(intro, intro + newer, 1)))
+
+    def test_workflow_rejects_list_valued_mode_without_traceback(self):
+        bundle = self.bundle()
+        bundle['writes'][0]['mode'] = ['create']
+        with self.assertRaises(TransactionError) as caught:
+            inspect_workflow(self.vault, bundle)
+        self.assertEqual('INVALID_WRITE_MODE', caught.exception.code)
+        path = Path(self.temporary.name) / 'listed.json'
+        path.write_text(json.dumps(bundle))
+        for command in ('transaction', 'workflow'):
+            run = subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/claude-obsidian.py'), command, 'inspect',
+                                  str(path), '--vault', str(self.vault)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(2, run.returncode, run.stderr)
+            self.assertIn('ERR INVALID_WRITE_MODE:', run.stderr)
+            self.assertNotIn('Traceback', run.stderr)
+
+    def test_reused_operation_id_with_another_type_is_operation_id_reused(self):
+        bundle = self.bundle()
+        approval = inspect_workflow(self.vault, bundle)['approval_sha256']
+        apply_workflow(self.vault, bundle, approved_plan_sha256=approval)
+        bundle['operation_type'] = 'ingest'
+        bundle['writes'][2]['content'] = bundle['writes'][2]['content'].replace('save', 'ingest')
+        with self.assertRaises(TransactionError) as caught:
+            apply_workflow(self.vault, bundle, approved_plan_sha256=approval)
+        self.assertEqual('OPERATION_ID_REUSED', caught.exception.code)
+        path = Path(self.temporary.name) / 'reused.json'
+        path.write_text(json.dumps(bundle))
+        run = subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/claude-obsidian.py'), 'workflow', 'apply',
+                              str(path), '--vault', str(self.vault), '--approved-plan-sha256', approval],
+                             capture_output=True, text=True, timeout=30)
+        self.assertEqual(75, run.returncode, run.stderr)
+        self.assertIn('ERR OPERATION_ID_REUSED:', run.stderr)
+
+    def test_hot_context_is_bounded_in_bytes_like_session_context(self):
+        from claude_obsidian.hook_adapter import MAX_CONTEXT_BYTES
+        bundle = self.bundle()
+        bundle['writes'][3]['content'] = '# Recent\n\n' + 'x' * MAX_CONTEXT_BYTES + '\n'
+        codes = {x['code'] for x in inspect_workflow(self.vault, bundle)['workflow_findings']}
+        self.assertEqual({'HOT_CONTEXT_TOO_LARGE'}, codes)
+
+    def test_new_declared_catalog_must_be_reachable_from_an_active_catalog(self):
+        bundle = self.bundle(catalog='wiki/Anything.md')
+        report = inspect_workflow(self.vault, bundle)
+        self.assertIn('INACTIVE_CATALOG', {x['code'] for x in report['workflow_findings']})
+        with self.assertRaises(TransactionError):
+            apply_workflow(self.vault, bundle, approved_plan_sha256=report['approval_sha256'])
+        # A new MOC is accepted once an active catalog in the same bundle links it.
+        bundle['workflow']['catalogs'] = ['wiki/index.md', 'wiki/Anything.md']
+        bundle['writes'].append({'path': 'wiki/index.md', 'mode': 'create', 'content': '# Index\n\n[[wiki/Anything]]\n'})
+        bundle['expected_hashes']['wiki/index.md'] = None
+        report = inspect_workflow(self.vault, bundle)
+        self.assertTrue(report['workflow_complete'], report['workflow_findings'])
+
+    def ingest_bundle(self):
+        bundle = self.bundle()
+        bundle['operation_type'] = 'ingest'
+        bundle['writes'][2]['content'] = bundle['writes'][2]['content'].replace('save', 'ingest')
+        ledgers = Path(self.vault / 'wiki/meta/ledgers')
+        ledgers.mkdir(parents=True)
+        for name, field in (('source', 'sources'), ('claim', 'claims')):
+            path = f'wiki/meta/ledgers/{name}-ledger.json'
+            content = json.dumps({'schema': f'claude-obsidian.{name}-ledger.v1',
+                                  'generated_at': '2026-10-17T00:00:00Z', field: {}})
+            (self.vault / path).write_text(content)
+            bundle['writes'].append({'path': path, 'mode': 'replace', 'content': content})
+            bundle['expected_hashes'][path] = hashlib.sha256(content.encode()).hexdigest()
+        return bundle
+
+    def test_ingest_requires_a_source_and_a_real_ledger_change(self):
+        bundle = self.ingest_bundle()
+        codes = {x['code'] for x in inspect_workflow(self.vault, bundle)['workflow_findings']}
+        self.assertEqual({'MISSING_INGEST_SOURCE', 'UNCHANGED_PROVENANCE'}, codes)
+        source = {'path': '.raw/articles/source.md', 'mode': 'create', 'content': '# Source\n'}
+        bundle['writes'].append(source)
+        bundle['expected_hashes'][source['path']] = None
+        codes = {x['code'] for x in inspect_workflow(self.vault, bundle)['workflow_findings']}
+        self.assertEqual({'UNCHANGED_PROVENANCE'}, codes)
+        claims = bundle['writes'][5]
+        claims['content'] = claims['content'].replace('2026-10-17T00:00:00Z', '2026-10-18T00:00:00Z')
+        self.assertTrue(inspect_workflow(self.vault, bundle)['workflow_complete'])
+        # Without a new raw payload, a recorded source supports a reviewed re-ingest.
+        bundle['writes'].remove(source)
+        bundle['expected_hashes'].pop(source['path'])
+        self.assertEqual({'MISSING_INGEST_SOURCE'},
+                         {x['code'] for x in inspect_workflow(self.vault, bundle)['workflow_findings']})
+        locator = 'https://example.com/article'
+        sources = json.loads(bundle['writes'][4]['content'])
+        sources['sources'] = {stable_source_id('url', locator, None): {
+            'origin': {'kind': 'url', 'locator': locator}, 'content_kind': 'webpage', 'title': 'Article',
+            'authority': 'secondary', 'content_sha256': None, 'ingested_at': None, 'retrieved_at': '2026-10-17',
+            'refresh_due': None, 'review_status': 'unreviewed', 'independence_key': None, 'pages': [],
+            'supersedes': None}}
+        bundle['writes'][4]['content'] = json.dumps(sources)
+        self.assertTrue(inspect_workflow(self.vault, bundle)['workflow_complete'])
+
+    def test_fifo_receipt_and_replay_log_never_block_workflow_apply(self):
+        if not hasattr(os, 'mkfifo'):
+            return
+        vault = self.init_vault()
+        intro = 'Newest completed operations appear first.\n\n'
+        log = (vault / 'wiki/log.md').read_text(encoding='utf-8').replace(
+            intro, intro + '## [2026-10-18] save | Example\n\n', 1)
+        bundle = self.seeded_save(vault, log, operation_id='fifo-save')
+        path = Path(self.temporary.name) / 'fifo-save.json'
+        path.write_text(json.dumps(bundle))
+        approval = inspect_workflow(vault, bundle)['approval_sha256']
+        apply_workflow(vault, bundle, approved_plan_sha256=approval)
+
+        def cli(*args):
+            try:
+                return subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/claude-obsidian.py'), *args],
+                                      capture_output=True, text=True, timeout=30)
+            except subprocess.TimeoutExpired as exc:
+                raise AssertionError(f'workflow command blocked: {args}') from exc
+
+        # Replay never reads the unused current log; a FIFO there cannot stall it.
+        (vault / 'wiki/log.md').rename(Path(self.temporary.name) / 'log.saved')
+        os.mkfifo(vault / 'wiki/log.md')
+        run = cli('workflow', 'apply', str(path), '--vault', str(vault), '--approved-plan-sha256', approval)
+        self.assertNotIn('Traceback', run.stderr)
+        self.assertEqual(75, run.returncode, run.stderr)
+        self.assertIn('OPERATION_RESULT_DRIFT', run.stderr)
+        for command in ('transaction', 'workflow'):
+            fresh = {'schema': BUNDLE_SCHEMA, 'operation_id': f'fifo-inspect-{command}', 'operation_type': 'save',
+                     'expected_hashes': {'wiki/log.md': hashlib.sha256(log.encode()).hexdigest()},
+                     'writes': [{'path': 'wiki/log.md', 'mode': 'replace', 'content': log}]}
+            fresh_path = Path(self.temporary.name) / f'{command}.json'
+            fresh_path.write_text(json.dumps(fresh))
+            run = cli(command, 'inspect', str(fresh_path), '--vault', str(vault))
+            self.assertNotIn('Traceback', run.stderr)
+            self.assertEqual(2, run.returncode, run.stderr)
+            self.assertIn('UNSAFE_VAULT_PATH', run.stderr)
+        (vault / 'wiki/log.md').unlink()
+        (Path(self.temporary.name) / 'log.saved').rename(vault / 'wiki/log.md')
+
+        receipt = vault / '.vault-meta/transactions/fifo-save/changed-paths.json'
+        receipt.unlink()
+        os.mkfifo(receipt)
+        run = cli('workflow', 'apply', str(path), '--vault', str(vault), '--approved-plan-sha256', approval)
+        self.assertNotIn('Traceback', run.stderr)
+        self.assertEqual(2, run.returncode, run.stderr)
+        self.assertIn('UNSAFE_VAULT_PATH', run.stderr)
+        self.assertFalse((vault / '.vault-meta/mutation.lock').exists())
 
     def test_content_file_requires_its_declared_hash(self):
         draft = Path(self.temporary.name) / 'note.md'

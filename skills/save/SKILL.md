@@ -72,7 +72,8 @@ Draft all changes before touching vault state. A complete Save normally couples:
 
 - the selected note;
 - `wiki/index.md` or the active methodology index;
-- one new top-of-file entry in `wiki/log.md`;
+- one new entry in `wiki/log.md` above every existing entry (directly below
+  the log title and introduction is fine), with existing lines unchanged;
 - a refreshed `wiki/hot.md` under 500 words;
 - source or claim ledger updates only when evidence changed.
 
@@ -103,8 +104,10 @@ The workflow gate reports `storage_valid` separately from `workflow_complete`.
 A recoverable storage bundle can still omit required knowledge outcomes; apply
 only when both pass. The default active catalog is `wiki/index.md`. For a
 methodology MOC, include `workflow: {"catalogs": ["wiki/path/to/MOC.md"]}` in
-the bundle, with that catalog's expected hash and write. Log and hot-cache
-writes remain required; keep the hot cache at most 500 words. See the
+the bundle, with that catalog's expected hash and write. A MOC created in
+the same bundle must be linked from `wiki/index.md` or an existing declared
+catalog. Log and hot-cache writes remain required; keep the hot cache at most
+500 words and 32 KiB. See the
 [workflow acceptance guide](../../docs/workflow-acceptance.md).
 
 Show the note title, destination, create/replace modes, and changed paths after
