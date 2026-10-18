@@ -100,8 +100,8 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "b54d20ef6098f4fd0deb2173df8effbb33c136e50b1fba5cf46f54c579e1d5f5",
-      "size": 31680
+      "sha256": "40155f4d45c6c367bd8b90e727d09c975371d2d298e178387a40372860b2e01e",
+      "size": 31872
     },
     {
       "mode": "0644",
@@ -322,8 +322,8 @@
     {
       "mode": "0644",
       "path": "claude_obsidian/lint_engine.py",
-      "sha256": "3085aa04700d00651879854cbf4ebc94ee09a098479696bd91e93fdae1a2f0d3",
-      "size": 85138
+      "sha256": "ce4b402292bb01baf487bc257df957c3475a37818d9a1405a410986d6f73144a",
+      "size": 85497
     },
     {
       "mode": "0644",
@@ -388,8 +388,8 @@
     {
       "mode": "0644",
       "path": "claude_obsidian/transport_probe.py",
-      "sha256": "0bca2fed81f30ef544f384bcbd24b45fc6faa16d8c71cf2968a6de20387af187",
-      "size": 2732
+      "sha256": "4942fb89df03a92463c8563aa4a98b5b5d74aa413b1d4a813ac16946c976a127",
+      "size": 2991
     },
     {
       "mode": "0644",
@@ -1324,8 +1324,8 @@
     {
       "mode": "0644",
       "path": "tests/test_detect_transport.py",
-      "sha256": "3315aae9ad27ee4cc4395631238540f2b7c412b1a7dd9c32c2e658dc5a9a8e44",
-      "size": 21218
+      "sha256": "655484d23e9f1b40cab7fe15a843fe3d20b0029cd1f22a3905d07410a6b36054",
+      "size": 22531
     },
     {
       "mode": "0644",
@@ -1390,8 +1390,8 @@
     {
       "mode": "0644",
       "path": "tests/test_lint_engine.py",
-      "sha256": "4b69fe3da8bd1544c926b17520eb1c4dd53ecffba30e42b4ee4790bdb6ffe4ec",
-      "size": 110863
+      "sha256": "f9a74130468ae6608c4dc7062549dd3b09d695b4c95fe229ebe2441354a1b64f",
+      "size": 111892
     },
     {
       "mode": "0644",
@@ -1541,6 +1541,6 @@
     }
   },
   "schema_version": 1,
-  "source_commit": "82c75b11daf33f5a92865ec933f16e7dcb04f390",
-  "source_date_epoch": 1792344722
+  "source_commit": "c51ebb1836def415aba0b734a3068c52b2340060",
+  "source_date_epoch": 1792345943
 }
