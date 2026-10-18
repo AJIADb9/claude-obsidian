@@ -45,6 +45,14 @@ def _snapshot(root: Path) -> dict[str, str]:
     return result
 
 
+def _mark_vault(vault: Path) -> None:
+    """Declare a real vault so wiki-root linting may resolve parent targets."""
+    (vault / ".claude-obsidian.json").write_text(
+        json.dumps({"schema": "claude-obsidian.workspace.v1", "vault": "."}),
+        encoding="utf-8",
+    )
+
+
 def _canonical_json(report: dict) -> str:
     return json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -857,9 +865,13 @@ class ObsidianConformanceTests(unittest.TestCase):
             "wiki/dir #1/file.md": self.FRONT + "# A heading\n\nText. ^block\n",
             "wiki/100%23.md": self.FRONT + "# Literal percent\n\nText.\n",
         })
-        self.assertEqual([("absent#file.md", "target-not-found")], [
+        # Wikilink targets are literal text; only Markdown destinations decode.
+        self.assertEqual([
+            ("absent#file.md", "target-not-found"),
+            ("dir%20%231/file#A heading", "target-not-found"),
+        ], sorted(
             (entry["target"], entry["reason"]) for entry in report["dead_links"]
-        ])
+        ))
 
     def test_flat_vault_is_diagnosed_without_expanding_page_scope(self) -> None:
         report = self._lint({
@@ -1069,10 +1081,18 @@ class ObsidianConformanceTests(unittest.TestCase):
 
     def test_multiline_inline_code_cannot_manufacture_block_heading_markers(self) -> None:
         report = self._lint({'wiki/index.md': self.FRONT + (
-            '[[#Fake atx]]\n[[#start]]\n[[#Visible code]]\n\n'
-            '`start\n# Fake atx\n====\nend`\n\n# Visible `code`\n\nContent.\n'
+            '[[#Fake setext]]\n[[#start]]\n[[#Visible code]]\n\n'
+            '`start\nFake setext\n====`\nend`\n\n# Visible `code`\n\nContent.\n'
         )})
-        self.assertEqual({'#Fake atx', '#start'}, {item['target'] for item in report['dead_links']})
+        self.assertEqual({'#Fake setext', '#start'}, {item['target'] for item in report['dead_links']})
+
+    def test_inline_code_cannot_cross_a_paragraph_interrupting_heading(self) -> None:
+        # CommonMark parses blocks first: the ATX line ends the paragraph, so
+        # the unmatched backtick stays literal and the heading is real.
+        report = self._lint({'wiki/index.md': self.FRONT + (
+            '[[#Real atx]]\n[[#start]]\n\n`start\n# Real atx\n====\nend`\n\nContent.\n'
+        )})
+        self.assertEqual({'#start'}, {item['target'] for item in report['dead_links']})
 
     def test_inline_code_comment_and_math_markers_do_not_hide_following_headings(self) -> None:
         report = self._lint({'wiki/index.md': self.FRONT + (
@@ -1403,6 +1423,202 @@ class ObsidianConformanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "frontmatter_policy"):
             self._lint({"wiki/index.md": self.FRONT}, frontmatter_policy="unknown")
 
+    def test_stray_backtick_cannot_hide_later_links_or_headings(self) -> None:
+        report = self._lint({
+            "wiki/stray.md": self.FRONT + (
+                "Type a ` to start code.\n\n[[dead-after-stray]]\n\n"
+                "```\nlet s = `x\n```\n\n[[dead-after-fence]]\n"
+            ),
+            "wiki/block.md": self.FRONT + (
+                "Open ` here\n```\n[[Hidden]] `\n```\n[[dead-after-block]]\n"
+            ),
+            "wiki/span.md": self.FRONT + "A `code\nspan [[Hidden]]` [[dead-after-span]]\n",
+            "wiki/target.md": self.FRONT + "Use `x here.\n\n# Second\n\nmore ` text\n",
+            "wiki/headref.md": self.FRONT + "[[target#Second]]\n",
+        })
+        self.assertEqual(
+            {"dead-after-stray", "dead-after-fence", "dead-after-block", "dead-after-span"},
+            {entry["target"] for entry in report["dead_links"]},
+        )
+
+    def test_indented_lazy_continuation_is_paragraph_text_not_code(self) -> None:
+        report = self._lint({"wiki/index.md": self.FRONT + (
+            "Paragraph line\n    still paragraph [[dead-lazy]]\n\n"
+            "- Item\n        still item [[dead-list-lazy]]\n\n"
+            "> Quote\n    still quote [[dead-quote-lazy]]\n\n"
+            "# Heading\n    [[Hidden]]\n\n    [[Hidden]]\n"
+        )})
+        self.assertEqual(
+            {"dead-lazy", "dead-list-lazy", "dead-quote-lazy"},
+            {entry["target"] for entry in report["dead_links"]},
+        )
+
+    def test_image_nested_in_link_label_checks_both_targets(self) -> None:
+        report = self._lint({"wiki/index.md": self.FRONT + (
+            "[![badge](dead-img.png)](dead-href.md)\n"
+            "![alt [inner](not-navigation.md)](dead-alt-img.png)\n"
+        )})
+        self.assertEqual(
+            {"dead-img.png", "dead-href.md", "dead-alt-img.png"},
+            {entry["target"] for entry in report["dead_links"]},
+        )
+        self.assertEqual(
+            "Badge ![b](i.png) title",
+            lint_engine.markdown_visible_text("Badge [![b](i.png)](x.md) title"),
+        )
+
+    def test_fences_inside_blockquotes_and_callouts_are_code(self) -> None:
+        report = self._lint({"wiki/index.md": self.FRONT + (
+            "> [!note]\n> ~~~\n> [[in-callout-code]]\n> ~~~\n\n"
+            "> ```\n> [[in-bq-code]]\n> ````\n> [[dead-after-long-close]]\n\n"
+            "> > ```\n> > [[nested-code]]\n> > ```\n\n"
+            "> ```\n> [[unclosed-quote-code]]\n\n[[dead-after-quote]]\n"
+            ">     [[indented-quote-code]]\n"
+        )})
+        self.assertEqual(
+            {"dead-after-long-close", "dead-after-quote"},
+            {entry["target"] for entry in report["dead_links"]},
+        )
+
+    def test_obsidian_heading_link_normalization_matches_stripped_characters(self) -> None:
+        report = self._lint({
+            "wiki/heads.md": self.FRONT + (
+                "# Step 1: Install\n\nx\n\n## Q&A | Notes\n\ny\n\n# :\n\nz\n"
+            ),
+            "wiki/user.md": self.FRONT + (
+                "[[heads#Step 1 Install]] [[heads#Step 1: Install]]\n"
+                "[[heads#Q&A Notes]] [x](heads.md#Step%201%20Install)\n"
+                "[[heads#:]] [[heads#Step 2 Install]]\n"
+            ),
+        })
+        self.assertEqual(
+            [("heads#Step 2 Install", "heading-not-found")],
+            [(entry["target"], entry["reason"]) for entry in report["dead_links"]],
+        )
+
+    def test_wikilink_targets_are_literal_but_markdown_destinations_decode(self) -> None:
+        report = self._lint({
+            "wiki/a%20b.md": self.FRONT + "Literal percent name.\n",
+            "wiki/c d.md": self.FRONT + "Space name.\n",
+            "wiki/user.md": self.FRONT + (
+                "[[a%20b]] [[c%20d]] [[c d]]\n[m](c%20d.md) [n](a%2520b.md)\n"
+            ),
+        })
+        self.assertEqual(
+            [("c%20d", "target-not-found")],
+            [(entry["target"], entry["reason"]) for entry in report["dead_links"]],
+        )
+
+    @unittest.skipUnless(lint_engine._supports_hidden_checks(), "confined stat unavailable")
+    def test_hidden_leaf_file_is_classified_without_reading_payload(self) -> None:
+        payload = b"Hidden leaf secret payload.\n"
+        original_read = transaction_module.os.read
+        payload_read = False
+
+        def tracked_read(descriptor: int, size: int) -> bytes:
+            nonlocal payload_read
+            block = original_read(descriptor, size)
+            payload_read = payload_read or payload in block
+            return block
+
+        with mock.patch.object(transaction_module.os, "read", tracked_read):
+            report = self._lint({
+                "wiki/.draft.md": payload.decode("utf-8"),
+                "wiki/user.md": self.FRONT + "[[wiki/.draft]] [[.draft]] [[.absent]]\n",
+            })
+        self.assertFalse(payload_read)
+        self.assertEqual([".absent"], [entry["target"] for entry in report["dead_links"]])
+        self.assertEqual(
+            [("wiki/.draft.md", "hidden-target-exists-not-indexed")] * 2,
+            [(entry["resolved_path"], entry["reason"]) for entry in report["hidden_target_links"]],
+        )
+        with mock.patch.object(lint_engine, "_supports_hidden_checks", return_value=False):
+            unverified = self._lint({"wiki/user.md": self.FRONT + "[[.draft]]\n"})
+        self.assertEqual([], unverified["dead_links"])
+        self.assertEqual(["hidden-target-status-unverified"], [
+            entry["reason"] for entry in unverified["hidden_target_links"]
+        ])
+
+    def test_lazy_container_text_is_not_a_setext_heading(self) -> None:
+        report = self._lint({"wiki/index.md": self.FRONT + (
+            "[[#Heading?]]\n[[#Quoted?]]\n[[#Real]]\n\n"
+            "- item\nHeading?\n---\n\n> quote\nQuoted?\n---\n\nReal\n---\n\nContent.\n"
+        )})
+        self.assertEqual(
+            {"#Heading?", "#Quoted?"}, {entry["target"] for entry in report["dead_links"]}
+        )
+
+    def test_provenance_ledger_read_uses_shared_capacity_constant(self) -> None:
+        from claude_obsidian.limits import MAX_CANONICAL_LEDGER_BYTES
+
+        self.assertEqual(MAX_CANONICAL_LEDGER_BYTES, lint_engine.MAX_CANONICAL_LEDGER_BYTES)
+        with mock.patch.object(lint_engine, "MAX_CANONICAL_LEDGER_BYTES", 8):
+            report = self._lint({
+                "wiki/index.md": self.FRONT + "Text.\n",
+                "wiki/meta/ledgers/source-ledger.json": json.dumps({"sources": {}}),
+            })
+        self.assertEqual(
+            ["cannot read provenance ledger"],
+            [entry["message"].split(":")[0] for entry in report["provenance_errors"]],
+        )
+
+
+class ParserScalingTests(unittest.TestCase):
+    """Generous wall-clock bounds that only catch superlinear scanner behavior."""
+
+    BOUND_SECONDS = 2.0
+
+    def _assert_fast(self, label: str, action) -> None:
+        import time
+
+        started = time.perf_counter()
+        action()
+        elapsed = time.perf_counter() - started
+        self.assertLess(elapsed, self.BOUND_SECONDS, f"{label} took {elapsed:.2f}s")
+
+    def test_large_prose_page_lints_quickly(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            vault = Path(directory)
+            (vault / "wiki").mkdir()
+            (vault / "wiki/Page.md").write_text(
+                "plain line of prose here\n" * 80_000, encoding="utf-8"
+            )
+            self._assert_fast(
+                "2 MB prose", lambda: lint_engine.lint_vault(vault, as_of="2026-10-18")
+            )
+
+    def test_adversarial_markdown_scans_are_linear(self) -> None:
+        from claude_obsidian import markdown_links
+
+        cases = {
+            "unclosed destinations": "[a](" * 20_000 + "\n",
+            "unclosed angled destinations": "[a](<" * 20_000 + "\n",
+            "quoted destinations": " '[a](' " * 20_000 + ' "' + "x" * 1000 + "\n",
+            "unclosed wikilinks": "[[" * 10_000 + "\n",
+            "stray backticks": "a ` b\n" * 50_000,
+            "mixed backtick runs": "a `` b ` c\n" * 30_000,
+            "carriage returns": "line [x]\r" * 50_000,
+            "inline math": "$a " * 20_000 + "\n",
+            "atx trailing space": "# a" + " " * 20_000 + "x\n",
+            "heading closing run": "# a" + " " * 20_000 + "x #\n",
+        }
+        for label, text in cases.items():
+            with self.subTest(label=label):
+                def scan() -> None:
+                    masked = markdown_links.mask_protected_regions(text)
+                    list(markdown_links.iter_markdown_links(masked))
+                    lint_engine._parse_links(lint_engine._Page(
+                        "wiki/p.md", Path("p.md"), text, masked,
+                        lint_engine._parse_frontmatter(text), frozenset(), (), (),
+                        frozenset(), True,
+                    ))
+                    heading_masked = lint_engine._mask_heading_html(text, 0)
+                    labels = lint_engine._mask_heading_html(text, 0, preserve_inline_code=True)
+                    for _, _, _, heading in lint_engine._headings(heading_masked, labels):
+                        lint_engine._normalize_heading(heading)
+
+                self._assert_fast(label, scan)
+
 
 class WalkScopeTests(unittest.TestCase):
     def test_raw_claude_and_trash_captures_are_not_walked(self) -> None:
@@ -1534,6 +1750,7 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
                 "views:\n  - name: Wiki pages\n", encoding="utf-8"
             )
             wiki.mkdir()
+            _mark_vault(vault)
             (wiki / "Page.md").write_text(
                 self.FRONT
                 + "![plot](../assets/plot.png)\n"
@@ -1554,11 +1771,59 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
         self.assertEqual([], via_wiki["missing_frontmatter"])
         self.assertEqual([{"path": "Page.md"}], via_wiki["orphans"])
 
+    def test_non_vault_parent_is_not_a_resolution_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory) / "projects"
+            wiki = parent / "wiki"
+            wiki.mkdir(parents=True)
+            (parent / "other-project").mkdir()
+            sibling_payload = b"# Private Heading\n"
+            (parent / "other-project/secret.md").write_bytes(sibling_payload)
+            (parent / "plot.png").write_bytes(b"plot")
+            (parent / ".cache").mkdir()
+            (parent / ".cache/state.txt").write_bytes(b"state")
+            (wiki / "Page.md").write_text(
+                self.FRONT + "[[secret#Private Heading]]\n![plot](../plot.png)\n"
+                "[state](../.cache/state.txt)\n",
+                encoding="utf-8",
+            )
+            original_read = transaction_module.os.read
+            sibling_read = False
+
+            def tracked_read(descriptor: int, size: int) -> bytes:
+                nonlocal sibling_read
+                block = original_read(descriptor, size)
+                sibling_read = sibling_read or sibling_payload in block
+                return block
+
+            with mock.patch.object(transaction_module.os, "read", tracked_read):
+                outside = lint_engine.lint_vault(wiki, as_of="2026-10-18")
+            self.assertFalse(sibling_read)
+            _mark_vault(parent)
+            inside = lint_engine.lint_vault(wiki, as_of="2026-10-18")
+
+        self.assertEqual(
+            [("../.cache/state.txt", "target-not-found"), ("../plot.png", "target-not-found"),
+             ("secret#Private Heading", "target-not-found")],
+            sorted((entry["target"], entry["reason"]) for entry in outside["dead_links"]),
+        )
+        self.assertEqual([], outside["hidden_target_links"])
+        self.assertEqual([], inside["dead_links"])
+        if lint_engine._supports_hidden_checks():
+            self.assertEqual([".cache/state.txt"], [
+                entry["resolved_path"] for entry in inside["hidden_target_links"]
+            ])
+        for report in (outside, inside):
+            self.assertEqual(1, report["summary"]["pages_scanned"])
+            self.assertEqual(1, report["summary"]["link_targets_indexed"])
+            self.assertEqual(".", report["scope"]["page_root"])
+
     def test_confined_markdown_read_preserves_bom_and_newline_semantics(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             vault = Path(directory) / "vault"
             wiki = vault / "wiki"
             wiki.mkdir(parents=True)
+            _mark_vault(vault)
             page = wiki / "Page.md"
             logical = self.FRONT + "# Heading\n\n[[Missing target]]\n"
             page.write_text(logical, encoding="utf-8")
@@ -1579,6 +1844,7 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
             wiki = vault / "wiki"
             (vault / "assets").mkdir(parents=True)
             wiki.mkdir()
+            _mark_vault(vault)
             (vault / "assets/plot.png").write_bytes(b"plot")
             (wiki / "Page.md").write_text(
                 self.FRONT + "![plot](../assets/plot.png)\n", encoding="utf-8"
@@ -1595,6 +1861,7 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
             vault = Path(directory) / "vault"
             wiki = vault / "wiki"
             wiki.mkdir(parents=True)
+            _mark_vault(vault)
             (wiki / "Reference.md").write_text(
                 self.FRONT + "# Local heading\n", encoding="utf-8"
             )
@@ -1617,6 +1884,7 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
             (vault / "build").mkdir(parents=True)
             (vault / "docs").mkdir()
             wiki.mkdir()
+            _mark_vault(vault)
             (vault / ".gitignore").write_text("/build/\n", encoding="utf-8")
             (vault / "build/Thing").write_text("artifact\n", encoding="utf-8")
             (vault / "docs/Thing.md").write_text("# Thing\n", encoding="utf-8")
@@ -1633,6 +1901,7 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
             wiki = vault / "wiki"
             outside = base / "outside"
             wiki.mkdir(parents=True)
+            _mark_vault(vault)
             outside.mkdir()
             (outside / "plot.png").write_bytes(b"plot")
             (outside / "Reference.md").write_text("# Outside\n", encoding="utf-8")
@@ -1686,16 +1955,20 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
             wiki = vault / "wiki"
             junction = vault / "junction"
             wiki.mkdir(parents=True)
+            _mark_vault(vault)
             junction.mkdir()
             target = junction / "Reference.md"
-            target.write_text("# Outside\n", encoding="utf-8")
+            target_payload = b"# Junction secret heading\n"
+            target.write_bytes(target_payload)
             (wiki / "Page.md").write_text(
                 self.FRONT + "[outside](../junction/Reference.md#Outside)\n",
                 encoding="utf-8",
             )
             original_lstat = Path.lstat
             original_read_text = Path.read_text
+            original_read = transaction_module.os.read
             surrogate_observed = False
+            target_payload_read = False
 
             def junction_lstat(path: Path):
                 nonlocal surrogate_observed
@@ -1713,13 +1986,22 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
                     raise AssertionError("junction target must not be read")
                 return original_read_text(path, *args, **kwargs)
 
+            def tracked_read(descriptor: int, size: int) -> bytes:
+                # Confined vault reads use descriptors, not Path.read_text.
+                nonlocal target_payload_read
+                block = original_read(descriptor, size)
+                target_payload_read = target_payload_read or target_payload in block
+                return block
+
             with (
                 mock.patch.object(Path, "lstat", junction_lstat),
                 mock.patch.object(Path, "read_text", guarded_read_text),
+                mock.patch.object(transaction_module.os, "read", tracked_read),
             ):
                 report = lint_engine.lint_vault(wiki, as_of="2026-10-18")
 
         self.assertTrue(surrogate_observed)
+        self.assertFalse(target_payload_read)
         self.assertEqual(1, len(report["dead_links"]))
         self.assertEqual("target-not-found", report["dead_links"][0]["reason"])
 
@@ -1729,6 +2011,7 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
             vault = base / "vault"
             wiki = vault / "wiki"
             wiki.mkdir(parents=True)
+            _mark_vault(vault)
             page = wiki / "Page.md"
             outside = base / "outside.md"
             page.write_text(self.FRONT + "# Safe\n", encoding="utf-8")
@@ -1792,6 +2075,7 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
             vault = base / "vault"
             wiki = vault / "wiki"
             wiki.mkdir(parents=True)
+            _mark_vault(vault)
             parent = vault / "Reference.md"
             outside = base / "outside.md"
             parent.write_text("# Safe\n", encoding="utf-8")
@@ -1848,6 +2132,7 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
             parent_directory = vault / "docs"
             outside_directory = base / "outside"
             wiki.mkdir(parents=True)
+            _mark_vault(vault)
             parent_directory.mkdir()
             outside_directory.mkdir()
             parent = parent_directory / "Reference.md"
@@ -1915,6 +2200,7 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
             wiki = vault / "wiki"
             (vault / ".raw").mkdir(parents=True)
             wiki.mkdir()
+            _mark_vault(vault)
             (vault / ".raw/source.txt").write_text("source\n", encoding="utf-8")
             (wiki / "Page.md").write_text(
                 self.FRONT + "[source](../.raw/source.txt)\n", encoding="utf-8"
