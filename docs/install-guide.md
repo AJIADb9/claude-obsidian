@@ -2,7 +2,7 @@
 
 claude-obsidian has two independent parts:
 
-1. the product package, skills, portable core, Claude adapter, and templates;
+1. the product package (skills, portable core, Claude adapter, and templates);
 2. a user-owned Obsidian vault containing mutable knowledge.
 
 Do not use an installed plugin cache as the vault. A source clone is suitable

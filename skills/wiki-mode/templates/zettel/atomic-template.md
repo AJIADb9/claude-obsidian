@@ -11,7 +11,7 @@ tags:
   - zettel
 ---
 
-# {{id}}  -  {{title}}
+# {{id}} {{title}}
 
 ## Claim
 
@@ -29,5 +29,5 @@ tags:
 
 ## Cross-references
 
-- [[{{related-zettel-1}}]]  -  (relationship)
-- [[{{related-zettel-2}}]]  -  (relationship)
+- [[{{related-zettel-1}}]]: (relationship)
+- [[{{related-zettel-2}}]]: (relationship)
