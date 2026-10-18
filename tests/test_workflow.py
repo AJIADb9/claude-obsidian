@@ -919,6 +919,20 @@ class WorkflowTests(unittest.TestCase):
             inspect_workflow(self.vault, path)
         self.assertEqual('CONTENT_HASH_REQUIRED', caught.exception.code)
 
+    def test_catalog_wikilink_scan_is_linear_and_matches_the_pattern(self):
+        import random
+        import time
+        from claude_obsidian import workflow as workflow_module
+        rng = random.Random(203)
+        for _ in range(5000):
+            text = ''.join(rng.choice('[]\n|#a!') for _ in range(rng.randint(0, 24)))
+            expected = [(m.span(), m.group(1)) for m in workflow_module._WIKI_LINK.finditer(text)]
+            actual = [(m.span(), m.group(1)) for m in workflow_module._iter_wiki_links(text)]
+            self.assertEqual(expected, actual, text)
+        started = time.monotonic()
+        self.assertFalse(workflow_module._links_to('[[' * 50000, 'wiki/x.md', 'wiki/index.md'))
+        self.assertLess(time.monotonic() - started, 5.0)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -11,7 +11,7 @@ import re
 import urllib.parse
 from datetime import date
 from pathlib import Path, PurePosixPath
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 from .hook_adapter import MAX_CONTEXT_BYTES
 from .json_utils import strict_json_loads
 from .lint_engine import _parse_frontmatter, _yaml_scalar
@@ -28,6 +28,25 @@ SUPPORTED_WORKFLOWS = frozenset({'save', 'ingest'})
 _HEADER = re.compile(r'\A---\r?\n.*?\r?\n---(?:\r?\n|$)', re.S)
 _LOG = re.compile(r'^## \[(\d{4}-\d{2}-\d{2})\] (save|ingest)(?:\s|\||$)', re.M)
 _WIKI_LINK = re.compile(r'\[\[([^\]\n]+)\]\]')
+
+
+def _iter_wiki_links(text: str) -> Iterator[re.Match[str]]:
+    """Yield ``_WIKI_LINK.finditer`` matches in linear time.
+
+    A failed body ends at its first ``]`` or line break, and every opener
+    before that terminator fails for the same reason, so scanning resumes there.
+    """
+    cursor = 0
+    while (opening := text.find('[[', cursor)) >= 0:
+        match = _WIKI_LINK.match(text, opening)
+        if match is not None:
+            yield match
+            cursor = match.end()
+            continue
+        stops = [index for index in (text.find(']', opening + 2), text.find('\n', opening + 2)) if index >= 0]
+        if not stops:
+            return
+        cursor = min(stops)
 _DEFAULT_CATALOG = 'wiki/index.md'
 _LEDGERS = ('wiki/meta/ledgers/source-ledger.json', 'wiki/meta/ledgers/claim-ledger.json')
 
@@ -191,7 +210,7 @@ def _links_to(text: str, page: str, catalog: str) -> bool:
     if PurePosixPath(page).parent == PurePosixPath(catalog).parent:
         candidates.update({PurePosixPath(page).name, PurePosixPath(page).stem})
     for source in (masked, *property_values):
-        for match in _WIKI_LINK.finditer(source):
+        for match in _iter_wiki_links(source):
             target = match.group(1).split('|', 1)[0].split('#', 1)[0].strip()
             if target in candidates:
                 return True
