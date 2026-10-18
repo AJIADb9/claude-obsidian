@@ -37,6 +37,16 @@ implementation record for older releases.
 - Capacity compaction rewrites only near- or over-capacity ledgers and refuses
   unfittable input before parsing; migrations write compact canonical ledgers.
   Claim-anchor validation no longer relies on `assert`.
+- Recovery honors a journaled in-flight marker, so a failed or interrupted
+  rollback never undoes or reports a write that did not begin. HTTPS provider
+  handshakes share the request deadline, and local reserved plugin-name checks
+  follow the host's separator rules.
+- The heading scan no longer crashes on a hash followed by inline code or on
+  inline code containing Unicode line separators. Setext headings after
+  non-paragraph container lines, lazy quote continuation, tab-indented hashes
+  and lazy `=` lines inside code spans follow CommonMark. Workflow inspection
+  parses each catalog once, and its guides state that a new MOC must be linked
+  from a catalog declared in `workflow.catalogs`.
 - Evaluator examples use physical temporary directories. macOS-compatible test
   fixtures retain their explicit symlink and invalid-input checks under aliased
   temporary paths without weakening production confinement.
