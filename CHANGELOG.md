@@ -9,6 +9,34 @@ implementation record for older releases.
 
 ### Fixed
 
+- Existing `claude-obsidian` installations migrate to `agricidaniel-obsidian`
+  through a marketplace `renames` map instead of reporting the plugin as missing;
+  package validation rejects renames chains that do not resolve.
+- Lint code spans stop at paragraph boundaries, so a stray backtick no longer
+  hides later links and headings. Link, heading, wikilink, math and code-span
+  scanners are linear on large and adversarial pages. Indented lazy
+  continuation, images inside link labels, quoted and callout fences, lazy
+  Setext candidates, Obsidian-stripped heading links, literal wikilink targets
+  and hidden leaf targets follow Obsidian/CommonMark behavior. A directly
+  linted `wiki/` resolves parent files only when the parent is a vault.
+- Tiling stops sending page text after the first provider failure. Ollama
+  replies are parsed strictly, so duplicate keys cannot hide remote markers;
+  malformed HTTP replies fall back instead of raising. Provider requests have
+  one wall-clock deadline, an unrelated installed cloud model no longer blocks
+  local mode, and an Ollama outage keeps valid local prefixes and the BM25 index.
+- A transaction whose not-yet-applied target is deleted or edited externally
+  rolls back with the original conflict instead of leaving a journal that
+  blocks later operations. Deeply nested or wrongly typed runtime state and
+  bundles return controlled errors, replay rejects a `prepared` journal, and
+  regular-file reads open non-blocking so FIFOs are refused rather than hang.
+- Hook fast paths emit UTF-8 on legacy console encodings. Workflow checks
+  accept the seeded log layout, cap `hot.md` at the session-context limit,
+  require new catalogs to be reachable and ingest to record a source and a real
+  ledger change, and report reused operation IDs as `OPERATION_ID_REUSED`.
+  Doctor reports symlinked or non-directory `wiki/` and runtime state as unsafe.
+- Capacity compaction rewrites only near- or over-capacity ledgers and refuses
+  unfittable input before parsing; migrations write compact canonical ledgers.
+  Claim-anchor validation no longer relies on `assert`.
 - Evaluator examples use physical temporary directories. macOS-compatible test
   fixtures retain their explicit symlink and invalid-input checks under aliased
   temporary paths without weakening production confinement.
@@ -26,7 +54,7 @@ implementation record for older releases.
   page verification and anchor parsing within each validation call.
 - Canvas permissions require explicit consent for destructive board edits.
   Defuddle documentation describes extraction planning and local capture.
-  Distribution excludes tests for excluded historical benchmark helpers.
+  The historical benchmark test, whose helpers were never distributed, is removed.
 - SessionStart also matches forked sessions on current Claude Code hosts while
   retaining explicit context consent and read-only hook behavior.
 - Workflow catalog navigation ignores YAML comments and accepts supported
@@ -104,7 +132,8 @@ implementation record for older releases.
 - Pinned upstream reconciliation, native conformance procedures, canonical
   methodology roles, glossary, consolidation and coordination recipes.
 - A required host compatibility release gate and the owner-qualified
-  `agricidaniel-obsidian` Claude adapter, with explicit legacy migration steps.
+  `agricidaniel-obsidian` Claude adapter, migrated through the marketplace
+  `renames` map.
 
 ### Removed
 
