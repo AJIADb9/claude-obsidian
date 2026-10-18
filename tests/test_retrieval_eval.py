@@ -79,7 +79,7 @@ class LabelSafetyTests(unittest.TestCase):
     def test_invalid_labels_are_refused(self) -> None:
         base = {"id": "one", "query": "research", "expected_pages": ["wiki/A.md"]}
         with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "queries.json"
+            path = Path(temporary).resolve() / "queries.json"
             for updates in (
                 {"id": "invalid id"}, {"query": ""}, {"query": "x" * 8001},
                 {"expected_pages": None}, {"expected_pages": ["../A.md"]},
@@ -100,7 +100,7 @@ class LabelSafetyTests(unittest.TestCase):
 
     def test_labels_are_bounded_and_never_follow_links(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             path = labels(root / "queries.json", [])
             alias = root / "linked.json"
             alias.symlink_to(path)
@@ -121,7 +121,7 @@ class LabelSafetyTests(unittest.TestCase):
 
     def test_missing_index_has_exit_10(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             query_file = labels(root / "queries.json", [])
             result = subprocess.run(
                 [sys.executable, str(ROOT / "scripts/evaluate-retrieval.py"), "--vault", str(root), "--queries", str(query_file)],
@@ -136,7 +136,7 @@ class FixtureAcceptanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.temporary = tempfile.TemporaryDirectory(prefix="quality-test-")
-        cls.root = Path(cls.temporary.name)
+        cls.root = Path(cls.temporary.name).resolve()
         cls.vault = cls.root / "fixture-vault"
         cls.query_file = provision_fixture(cls.vault, ROOT)
 

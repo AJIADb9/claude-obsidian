@@ -9,6 +9,9 @@ implementation record for older releases.
 
 ### Fixed
 
+- Evaluator examples use physical temporary directories. macOS-compatible test
+  fixtures retain their explicit symlink and invalid-input checks under aliased
+  temporary paths without weakening production confinement.
 - Developer test cleanup no longer exposes a target that erases transaction
   recovery journals. Doctor rejects unsafe metadata paths and checks both write
   and search access without changing the selected vault.

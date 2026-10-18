@@ -6,10 +6,13 @@ from source material, or vault operation.
 
 ## Build the packet
 
-Run:
+Choose a physical directory for packet and response files. Readers reject
+symlinks in every supplied path component. This includes macOS aliases such as
+`/tmp` and `/var`, so resolve the trusted temporary directory first:
 
 ```bash
-python3 scripts/evaluate-prompts.py packet > /tmp/prompt-packet.json
+PROMPT_EVAL_DIR="$(python3 -c 'from pathlib import Path; import tempfile; print(Path(tempfile.gettempdir()).resolve())')"
+python3 scripts/evaluate-prompts.py packet > "$PROMPT_EVAL_DIR/prompt-packet.json"
 ```
 
 The packet contains the current full `wiki-query` and `save` skill text plus
@@ -30,8 +33,8 @@ object. Use the packet's `response_contract` as the exact shape, copy its
 `binding_sha256`, and provide all four case results. Then run:
 
 ```bash
-python3 scripts/evaluate-prompts.py evaluate /tmp/response.json \
-  --packet /tmp/prompt-packet.json
+python3 scripts/evaluate-prompts.py evaluate "$PROMPT_EVAL_DIR/response.json" \
+  --packet "$PROMPT_EVAL_DIR/prompt-packet.json"
 ```
 
 The response contract describes field names, JSON types and the frozen Save

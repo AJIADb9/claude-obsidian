@@ -5,6 +5,11 @@ reads selected pages and caches without rebuilding them. It always passes
 `--no-rerank`, makes no model or provider calls, and never provisions a user
 vault. Reported results describe the selected snapshot and query set.
 
+Use physical paths for query-label files. The reader rejects symlinks in every
+path component, including macOS aliases such as `/tmp` and `/var`. Resolve the
+trusted containing directory before creating ordinary label files there;
+explicit symlink inputs remain invalid.
+
 ```bash
 python3 scripts/evaluate-retrieval.py --vault /absolute/vault \
   --queries /absolute/queries.json

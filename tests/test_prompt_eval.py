@@ -114,7 +114,7 @@ class PromptEvaluationTests(unittest.TestCase):
 
     def test_response_symlink_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            temporary = Path(directory)
+            temporary = Path(directory).resolve()
             target = temporary / "target.json"
             target.write_text(json.dumps(self.response), encoding="utf-8")
             link = temporary / "response.json"
@@ -124,7 +124,7 @@ class PromptEvaluationTests(unittest.TestCase):
 
     def test_response_path_with_symlinked_directory_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            temporary = Path(directory)
+            temporary = Path(directory).resolve()
             actual = temporary / "actual"
             actual.mkdir()
             response_path = actual / "response.json"
@@ -138,7 +138,7 @@ class PromptEvaluationTests(unittest.TestCase):
 
     def test_invalid_utf8_source_is_mapped_to_evaluation_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            temporary = Path(directory)
+            temporary = Path(directory).resolve()
             for relative in (
                 "skills/wiki-query/SKILL.md",
                 "skills/save/SKILL.md",
@@ -321,7 +321,7 @@ class PromptEvaluationTests(unittest.TestCase):
 
     def test_non_json_response_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "response.json"
+            path = Path(directory).resolve() / "response.json"
             path.write_text("This is not JSON.\n", encoding="utf-8")
             with self.assertRaisesRegex(PromptEvaluationError, "strict UTF-8 JSON"):
                 evaluate_response(self.packet, path, product_root=ROOT)
@@ -349,7 +349,7 @@ class PromptEvaluationTests(unittest.TestCase):
             1,
         )
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "duplicate.json"
+            path = Path(directory).resolve() / "duplicate.json"
             path.write_text(raw, encoding="utf-8")
             with self.assertRaisesRegex(PromptEvaluationError, "duplicate JSON object key"):
                 evaluate_response(self.packet, path, product_root=ROOT)
@@ -409,7 +409,7 @@ class PromptEvaluationTests(unittest.TestCase):
         self.assertIn("evaluate", help_result.stdout)
 
         with tempfile.TemporaryDirectory() as directory:
-            temporary = Path(directory)
+            temporary = Path(directory).resolve()
             packet_path = temporary / "packet.json"
             packet_result = subprocess.run(
                 [sys.executable, str(SCRIPT), "packet"],
