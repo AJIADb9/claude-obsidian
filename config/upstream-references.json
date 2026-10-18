@@ -410,7 +410,7 @@
     },
     {
       "path": "docs/upstream-references.md",
-      "sha256": "7beac5e357dfca97e3d313dea0455e76d9702206e30209ea95259b433f4d33a6"
+      "sha256": "93030e7ecb9799c4bd34cf6a82a0cc922bba932cb1b41cd53d75566d302e2376"
     },
     {
       "path": "skills/defuddle/SKILL.md",
@@ -418,7 +418,7 @@
     },
     {
       "path": "skills/obsidian-bases/SKILL.md",
-      "sha256": "d698aec17a08ff52557c30eb5fcc446e629ef048ad386545804e2cc025163113"
+      "sha256": "3cd5676434bc86618802e07cf44ff9c7a5d4c10fb7ecb412775b9fef9cfa82be"
     },
     {
       "path": "skills/obsidian-markdown/SKILL.md",

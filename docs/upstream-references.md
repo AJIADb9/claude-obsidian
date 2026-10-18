@@ -28,8 +28,10 @@ Web Clipper's marketing assets are outside its source-code MIT grant. A skill
 mentioning Knap grants no license to Knap itself, which was not inspected.
 
 Known disagreement: official Bases Help describes date differences in
-milliseconds while the reviewed API/changelog and upstream skill describe a
-Duration. Preserve this as unresolved until supported native app tests exist.
+milliseconds while the 1.9.3 changelog and upstream skill describe a Duration.
+The recorded `obsidian.d.ts` excerpts do not include a Duration definition and
+are not cited for either side. Preserve this as unresolved until supported
+native app tests exist.
 The local Defuddle skill intentionally stops at inert plans/filesystem capture,
 even when an upstream recipe would run the CLI. Local transaction, no automatic
 installation, selected-vault and network-consent rules remain authoritative.
