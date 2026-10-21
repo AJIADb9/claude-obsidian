@@ -7,6 +7,203 @@ implementation record for older releases.
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-21
+
+Hardening release: recoverable transactions, deterministic lint and retrieval,
+offline evaluation, explicit provider controls, and a renamed Claude plugin.
+The rename is the breaking change; vaults need no migration.
+
+### Upgrading from 2.x
+
+The Claude plugin is now `agricidaniel-obsidian`, so `/claude-obsidian:*`
+commands become `/agricidaniel-obsidian:*`. No alias is provided. Run:
+
+```bash
+claude plugin marketplace update agricidaniel-claude-obsidian
+claude plugin install agricidaniel-obsidian@agricidaniel-claude-obsidian
+```
+
+Then restart Claude Code. Until the install runs, the plugin is not installed.
+Managed settings must change the key by hand. Contextual prefixes no longer
+fall back to `claude -p` (see Removed). See the
+[namespace migration](docs/namespace-migration.md) for verification and rollback.
+
+### Changed
+
+- The Claude plugin is renamed from `claude-obsidian` to
+  `agricidaniel-obsidian`, because Claude Code reserves plugin names starting
+  with `claude-`. The marketplace `renames` map migrates existing installations
+  instead of reporting the plugin as missing; package validation rejects
+  renames chains that do not resolve. The repository, Python package and vault
+  formats keep the claude-obsidian name.
+- Cached contextual prefixes are reused only when they match the current
+  provider settings. Prefixes cached by earlier versions record no settings,
+  so the first run after upgrading regenerates them all; with `--allow-egress`
+  that sends every page to the configured API again.
+
+### Fixed
+
+- Contextual chunking and BM25 indexing read pages whose names use decomposed
+  Unicode (macOS, or a vault synced from it) or, on POSIX, a backslash. One
+  such page used to stop chunking for the whole vault.
+- `wiki-mode` routes strip `#`, `^`, `[` and `]` from title-preserving
+  filenames, which Obsidian cannot link to. Generic source and question routes
+  keep the title, and reuse a slugged page filed by an earlier version instead
+  of suggesting a duplicate.
+- Lint code spans stop at paragraph boundaries, so a stray backtick no longer
+  hides later links and headings. Link, heading, wikilink, math and code-span
+  scanners are linear on large and adversarial pages. Indented lazy
+  continuation, images inside link labels, quoted and callout fences, lazy
+  Setext candidates, Obsidian-stripped heading links, literal wikilink targets
+  and hidden leaf targets follow Obsidian/CommonMark behavior. A directly
+  linted `wiki/` resolves parent files only when the parent is a vault.
+- Tiling stops sending page text after the first provider failure. Ollama
+  replies are parsed strictly, so duplicate keys cannot hide remote markers;
+  malformed HTTP replies fall back instead of raising. Provider requests have
+  one wall-clock deadline, an unrelated installed cloud model no longer blocks
+  local mode, and an Ollama outage keeps valid local prefixes and the BM25 index.
+- A transaction whose not-yet-applied target is deleted or edited externally
+  rolls back with the original conflict instead of leaving a journal that
+  blocks later operations. Deeply nested or wrongly typed runtime state and
+  bundles return controlled errors, replay rejects a `prepared` journal, and
+  regular-file reads open non-blocking so FIFOs are refused rather than hang.
+- Hook fast paths emit UTF-8 on legacy console encodings. Workflow checks
+  accept the seeded log layout, cap `hot.md` at the session-context limit,
+  require new catalogs to be reachable and ingest to record a source and a real
+  ledger change, and report reused operation IDs as `OPERATION_ID_REUSED`.
+  Doctor reports symlinked or non-directory `wiki/` and runtime state as unsafe.
+- Capacity compaction rewrites only near- or over-capacity ledgers and refuses
+  unfittable input before parsing; migrations write compact canonical ledgers.
+  Claim-anchor validation no longer relies on `assert`.
+- Recovery honors a journaled in-flight marker, so a failed or interrupted
+  rollback never undoes or reports a write that did not begin. HTTPS provider
+  handshakes share the request deadline, and local reserved plugin-name checks
+  follow the host's separator rules.
+- Verification runs on every pull request, including PRs stacked on another
+  PR's branch. Dependabot proposes cooled-down, SHA-pinned GitHub Actions
+  updates, and CodeQL scans the Python core and workflows.
+- The Bases Duration disagreement cites only the recorded evidence (the 1.9.3
+  changelog and the pinned upstream skill), with its local fallback hashes
+  re-pinned. `scripts/evaluate-prompts.py` is executable like its siblings.
+- A timed-out Obsidian CLI probe falls back to the filesystem on hosts without
+  `os.killpg`, and lint names the error code and capacity recovery when a
+  provenance ledger exceeds its limit.
+- The heading scan no longer crashes on a hash followed by inline code or on
+  inline code containing Unicode line separators. Setext headings after
+  non-paragraph container lines, lazy quote continuation, tab-indented hashes
+  and lazy `=` lines inside code spans follow CommonMark. Workflow inspection
+  parses each catalog once, and its guides state that a new MOC must be linked
+  from a catalog declared in `workflow.catalogs`.
+- Evaluator examples use physical temporary directories. macOS-compatible test
+  fixtures retain their explicit symlink and invalid-input checks under aliased
+  temporary paths without weakening production confinement.
+- Developer test cleanup no longer exposes a target that erases transaction
+  recovery journals. Doctor rejects unsafe metadata paths and checks both write
+  and search access without changing the selected vault.
+- Direct wiki-root lint resolves sibling attachments within the containing
+  vault while preserving report scope. Confined metadata reads reject file and
+  ancestor swaps before reading outside bytes. BM25 treats malformed UTF-8 as stale.
+- Semantic providers share a cloud-disabled local-model proof, exact model
+  selection and digest-bound cache identity. Tiling reports incomplete work
+  with exit 12 and preserves its previous cache after embedding failures,
+  including fresh vector dimension disagreements.
+- Provenance grouping uses identity lookups, and repeated claims share bounded
+  page verification and anchor parsing within each validation call.
+- Canvas permissions require explicit consent for destructive board edits.
+  Defuddle documentation describes extraction planning and local capture.
+  The historical benchmark test, whose helpers were never distributed, is removed.
+- SessionStart also matches forked sessions on current Claude Code hosts while
+  retaining explicit context consent and read-only hook behavior.
+- Workflow catalog navigation ignores YAML comments and accepts supported
+  active property wikilinks through the shared frontmatter parser.
+- Retrieval skips corrupt chunk records while retaining healthy hits and counts
+  each rejected record. Strict page decoding prevents invalid UTF-8 from
+  matching a prior replacement character. JSON conversion-limit failures use
+  controlled cache, threshold and candidate errors or documented fallback.
+- Interrupted replacement recovery preserves externally deleted targets as
+  conflicts. Completed workflow replay rejects malformed receipts and write
+  shapes with controlled errors before mutation.
+- Lint resolves quoted aliases with commas and comments, balanced inline-link
+  labels and heading destinations, and comment-only empty sections. Malformed
+  bracket runs are scanned without repeated suffix searches.
+- Prefixing rejects malformed UTF-8 before provider or cache work. Local model
+  endpoints use numeric loopback rather than ambient localhost resolution.
+- Embedding and reranking disable ambient proxies and redirects, bound response
+  reads, and validate query, candidate and threshold inputs before provider or
+  cache work. Malformed UTF-8 caches and thresholds follow controlled errors.
+- The offline Save fixture enforces an explicit bounded source-word title
+  contract and exact note bodies. Canvas guidance uses the supported catalog
+  and distinguishes node edits from unsupported board file deletion or rename;
+  retrieval describes only supported providers.
+- Workflow catalogs and selected notes reject hidden paths. Completed replay
+  can verify committed content after disposable drafts are removed, without
+  relaxing bundle, approval or result-drift checks. Batch logs require real
+  calendar dates.
+- Completed transaction replay requires its retained journal and expanded
+  bundle, with matching result identity, write coverage and content hashes.
+- Lint recognizes protected-region-aware Setext headings in fragment resolution,
+  heading hierarchies and empty-section checks. Styled labels preserve visible
+  inline code; raw HTML blocks cannot manufacture Markdown heading matches.
+- Optional provider generation has bounded request work and a failure circuit
+  breaker. Unchanged chunk reuse validates the current record schema and
+  content invariants before skipping regeneration.
+- Namespace migration documents scope-aware disable, install, verification,
+  rollback and optional cleanup, including the legacy reinstall limitation.
+- Shared Markdown protection ignores comments, code and escaped syntax in
+  lint and workflow navigation. Valid angled and titled destinations resolve
+  consistently, and selected note updates cannot bypass catalog navigation.
+- Provider output is validated and serialized before publication. Malformed
+  Unicode falls back safely without discarding an unchanged ready index.
+- Starter and sample catalogs connect their structural pages. Query Quick has
+  an explicit evidence-based exit and read budget; Save can draft a missing
+  title for the existing review step.
+- Lint splits encoded Markdown paths before decoding, reports unscanned flat
+  vault content, distinguishes hidden source targets, and understands supported
+  heading paths, property links, PDF options and named Base embeds. Explicit
+  generated-page checks validate values without imposing a schema on adoption.
+- Canonical ledger writes respect the same 16 MiB envelope as their readers.
+  Capacity diagnostics and reviewed formatting compaction preserve existing
+  source identities and recoverable backups.
+- Canvas catalogs use `_index.md`; legacy journals remain recoverable. Generic
+  source/question routes preserve title case and spaces.
+- Default-off SessionStart exits before importing the CLI. CLI preference now
+  requires selected-vault identity and exact read-capability probes.
+- Defuddle guidance no longer treats an unchecked external executable or local
+  HTML input as enforcement of approved network destinations.
+- Provider prefixes bind cache reuse to the model and generation profile.
+  Haiku 5.5 uses an explicit bounded adaptive-thinking profile, with an optional
+  legacy model and safe refusal/truncation fallback.
+
+### Added
+
+- Offline Query/Save prompt evaluation with instruction hashes, explicit
+  response contracts and negative controls. It makes no provider requests and
+  keeps controlled prompt reasoning separate from operational skill acceptance.
+- Separate named workflow inspection/application for Save and Ingest, with
+  hash-bound catalog policy and explicit structural completeness results.
+- Static Canvas product-policy validation and honestly bounded Base text checks.
+- Offline labeled retrieval evaluation with recall, MRR, explicit denominators,
+  retained misses and an original multilingual fixture.
+- Explicit installed-model Ollama prefixes, with bounded proxy-free requests,
+  redirect refusal and cloud-disabled local-model preflight.
+- Pinned upstream reconciliation, native conformance procedures, canonical
+  methodology roles, glossary, consolidation and coordination recipes.
+- A required host compatibility release gate.
+
+### Removed
+
+- Ambient `claude -p` contextual prefix generation. Without an explicitly
+  configured API or local Ollama provider, prefixes remain synthetic; a
+  subscription CLI can no longer load unrelated tools or host context.
+
+### Thanks
+
+Pull requests from Ychris12138 (#194), Marcos64s (#199), hphsu (#195),
+vinsocci (#63) and miraclemanza (#46), and issue reports from RoelKluin (#200),
+threnard (#193), szrenwei (#191), ppuri2 (#168), cosmos75 (#141) and simonc
+(#25) shaped this release. [ATTRIBUTION.md](ATTRIBUTION.md) lists what each
+one contributed.
+
 ## [2.2.0] - 2026-09-10
 
 Backlog triage: lint scoping, lock recovery, host validation, the `bin/`

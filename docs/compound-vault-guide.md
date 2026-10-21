@@ -114,14 +114,17 @@ the smaller English-oriented v1.5 model can select it explicitly with
 `--model nomic-embed-text`; multilingual vaults should retain the v2 default.
 Nomic v2 has a 512-token input context, and Ollama truncates longer embedding
 inputs by default; BM25 still scores the complete chunk. If the selected model
-is missing or an embedding stage fails, results fall back completely to BM25
-order and scores. Deleted, changed, or escaping chunk records are rejected, and
-page deduplication happens before the final top-K.
+is missing, local-only model proof fails, or an embedding stage fails, results
+fall back completely to BM25 order and scores. Proof requires cloud-disabled
+server status, a valid installed digest, and nonempty local model metadata
+before query, chunk, or cache work. Deleted, changed, or escaping chunk records
+are rejected, and page deduplication happens before the final top-K.
 
 Retrieval queries are bounded at 8,000 normalized characters and result counts
 at 1 through 1,000. Oversized queries and invalid limits fail explicitly. An
 untagged Ollama model request matches only the corresponding untagged name or
 its `:latest` alias; other installed tags must be selected by their exact name.
+Embedding cache entries are scoped to the verified model digest.
 
 Contextual-prefix model calls require `--allow-egress`. Remote Ollama requires
 `--allow-remote-ollama`. Neither is inferred from an environment variable

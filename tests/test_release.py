@@ -63,6 +63,14 @@ def _codes(report: dict) -> set[str]:
 
 
 class CanonicalReleasePolicyTests(unittest.TestCase):
+    def test_distribution_excludes_tests_for_excluded_historical_helpers(self) -> None:
+        config, errors = _load_config(ROOT)
+        self.assertEqual([], errors)
+        assert config is not None
+        for name in ("scripts/baseline-v16.py", "scripts/benchmark-runner.py", "tests/test_benchmark_tools.py"):
+            self.assertFalse(_selected(name, config), name)
+        self.assertTrue(_selected("tests/test_retrieval_eval.py", config))
+
     def test_public_policy_never_selects_root_contributor_vault_state(self) -> None:
         config, errors = _load_config(ROOT)
         self.assertEqual([], errors)

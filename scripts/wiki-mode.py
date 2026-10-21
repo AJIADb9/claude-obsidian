@@ -33,6 +33,7 @@ import argparse
 import hashlib
 import json
 import re
+import stat
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -192,12 +193,16 @@ def slugify(name):
 
 
 def safe_name(name):
-    """Sanitize a name that intentionally preserves case + spaces (entity/concept).
+    """Sanitize a name that intentionally preserves case + spaces
+    (entity/concept/source/question).
     Strips path separators, null bytes, control characters, and leading dots or
     hyphens so the returned string cannot escape its parent directory or be
     interpreted as a hidden file or flag. Spaces and case are preserved.
+    Obsidian link syntax (``#``, ``^``, ``[``, ``]``) is also stripped, since a
+    filename holding it cannot be the target of a wikilink.
     """
-    cleaned = re.sub(r"[/\\\x00-\x1f\x7f<>:\"|?*\ud800-\udfff]+", "", name)
+    cleaned = re.sub(r"[/\\\x00-\x1f\x7f<>:\"|?*#^\[\]\ud800-\udfff]+", "", name)
+    cleaned = re.sub(r" {2,}", " ", cleaned)
     cleaned = cleaned.lstrip(".- ").rstrip(". ")
     return cleaned or "untitled"
 
@@ -248,6 +253,14 @@ def _markdown_filename(stem, prefix=""):
     return filename
 
 
+def _existing_page(relative):
+    """Return True when a regular, non-link file already exists at a vault path."""
+    try:
+        return stat.S_ISREG((VAULT_ROOT / relative).lstat().st_mode)
+    except (OSError, ValueError):
+        return False
+
+
 def mint_zettel_id():
     """Return a time-sortable UTC prefix plus an independent UUIDv4 nonce.
 
@@ -278,16 +291,25 @@ def route_path(mode, content_type, name, cfg):
     if mode == "generic":
         g = cfg["config"]["generic"]
         mapping = {
-            "source":   g["sources_folder"] + _markdown_filename(slug),
+            # Source and question pages are linked by title, so keep its
+            # spaces and case.
+            "source":   g["sources_folder"] + _markdown_filename(raw),
             "entity":   g["entities_folder"] + _markdown_filename(raw),
             "concept":  g["concepts_folder"] + _markdown_filename(raw),
             "session":  g["sessions_folder"] + _markdown_filename(slug),
-            "question": g["questions_folder"] + _markdown_filename(slug),
+            "question": g["questions_folder"] + _markdown_filename(raw),
             # Legacy alias of `concept`; its existing destination is preserved
             # rather than rewritten, so accepted calls keep their exact paths.
             "research": g["concepts_folder"] + _markdown_filename(raw),
         }
         result = mapping[content_type]
+        if content_type in {"source", "question"}:
+            # Before 3.0.0 these routes were slugged. Keep filing to a page an
+            # earlier route created rather than suggesting a duplicate.
+            folder = g["sources_folder" if content_type == "source" else "questions_folder"]
+            legacy = folder + _markdown_filename(slug)
+            if legacy != result and _existing_page(legacy) and not _existing_page(result):
+                result = legacy
 
     elif mode == "lyt":
         notes = cfg["config"]["lyt"]["notes_folder"]

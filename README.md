@@ -6,14 +6,14 @@
 
 <p align="center">
   <strong>Build an Obsidian knowledge base that becomes more useful every time you use it.</strong><br>
-  Capture sources, create connected notes, retrieve grounded answers, and keep the vault healthy—without giving up ownership of your files.
+  Capture sources, create connected notes, retrieve grounded answers, and keep the vault healthy, without giving up ownership of your files.
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2563eb.svg" alt="MIT license"></a>
   <a href="https://agentskills.io"><img src="https://img.shields.io/badge/Agent%20Skills-compatible-2563eb" alt="Agent Skills compatible"></a>
   <a href="https://code.claude.com/docs/en/plugins"><img src="https://img.shields.io/badge/Claude%20Code-plugin-7c3aed" alt="Claude Code plugin"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v2.2.0-d97745" alt="Release v2.2.0"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v3.0.0-d97745" alt="Release v3.0.0"></a>
 </p>
 
 <p align="center">
@@ -139,12 +139,12 @@ claude --plugin-dir /absolute/path/to/claude-obsidian
 Start with:
 
 ```text
-/claude-obsidian:wiki
+/agricidaniel-obsidian:wiki
 ```
 
 Then place a source in `inbox/` and invoke
-`/claude-obsidian:wiki-ingest`. Save an answer explicitly with
-`/claude-obsidian:save`; ask the vault with `/claude-obsidian:wiki-query`.
+`/agricidaniel-obsidian:wiki-ingest`. Save an answer explicitly with
+`/agricidaniel-obsidian:save`; ask the vault with `/agricidaniel-obsidian:wiki-query`.
 
 For Codex, OpenCode, Gemini, or ZCode, preview and then apply the portable
 skill links from the product checkout:
@@ -158,6 +158,13 @@ Cursor and Windsurf use workspace-local skill discovery. Marketplace setup,
 every supported host, vault adoption, upgrades, and uninstall steps are covered
 in the [full installation guide](docs/install-guide.md).
 
+Current Claude Code releases can also install it from the public marketplace
+in one step:
+
+```text
+/plugin install agricidaniel-obsidian --marketplace AgriciDaniel/claude-obsidian
+```
+
 ## 15 skills, one system
 
 The skills are small enough to invoke directly and coordinated enough to share
@@ -168,7 +175,7 @@ the same evidence, vault-selection, and mutation rules.
 | Skill | What it does |
 |---|---|
 | `wiki` | Initializes or adopts a vault, diagnoses readiness, and routes work |
-| `save` | Saves one scoped answer or insight—never an automatic transcript |
+| `save` | Saves one scoped answer or insight, never an automatic transcript |
 | `wiki-ingest` | Turns captured sources into linked pages and provenance records |
 | `wiki-query` | Answers read-only from relevant vault evidence |
 | `wiki-lint` | Reports dead links, orphans, metadata gaps, stale indexes, and empty sections |
@@ -179,7 +186,7 @@ the same evidence, vault-selection, and mutation rules.
 |---|---|
 | `autoresearch` | Bounded web research with explicit egress and a separate canonical merge |
 | `canvas` | Wiki-scoped Obsidian Canvas creation and maintenance |
-| `defuddle` | Clean, readable web content before ingestion |
+| `defuddle` | Plans extraction and captures supplied local files before ingestion |
 | `wiki-fold` | Extractive, traceable rollups of the operation log |
 | `wiki-mode` | Generic, LYT, PARA, or Zettelkasten filing conventions |
 | `wiki-retrieve` | Contextual prefixes, BM25, and optional cosine reranking |
@@ -194,7 +201,7 @@ the same evidence, vault-selection, and mutation rules.
 | `think` | A structured observe, listen, connect, create, and grow review loop |
 
 Claude Code exposes namespaced invocations such as
-`/claude-obsidian:wiki-lint`; other hosts use their native Agent Skills
+`/agricidaniel-obsidian:wiki-lint`; other hosts use their native Agent Skills
 invocation. Trigger phrases and exact contracts live in each
 `skills/<name>/SKILL.md`.
 
@@ -222,6 +229,11 @@ target is a conflict, never a silent overwrite. Git checkpoints, destructive
 repairs, network egress, and canonical research merges remain explicit
 operations.
 
+The lock coordinates cooperating local writers. External editors and other
+devices do not share it; their writes can conflict with an inspected plan or an
+in-flight operation. Follow the [coordination guidance](skills/wiki/references/coordination.md)
+and keep backups, particularly when editing Canvas or Base files through Sync.
+
 Read the [transaction contract](skills/wiki/references/operation-transactions.md),
 [provenance contract](skills/wiki/references/provenance.md), and
 [Compound Vault architecture](docs/compound-vault-guide.md) for the
@@ -234,11 +246,49 @@ machine-facing detail.
 | Local filesystem sources | Implemented bounded, content-addressed byte capture |
 | Images | Metadata, hash, size, and bounded dimensions when available |
 | PDF and EPUB | Metadata, hash, and size; no built-in semantic extraction |
-| URL and YouTube | Validated consent plans; a configured external runner is required |
+| URL and YouTube | Inert consent plans; execution requires a runner that enforces every approved destination, including redirects and async providers |
 | OCR | Local-file consent plan; a configured external runner is required |
 | BM25 retrieval | Local and deterministic |
 | Contextual prefixes or remote models | Optional and gated by explicit egress consent |
 | Obsidian CLI | Optional for reads/search; filesystem transport remains available |
+
+## Local reliability tools
+
+Named Save and Ingest operations use `workflow inspect` and `workflow apply` to
+check required catalog navigation, batch history, hot context and evidence
+records before a reviewed transaction is applied. Storage validity and workflow
+completeness are reported separately. See [workflow acceptance](docs/workflow-acceptance.md).
+
+Lint reports scan coverage, encoded paths, heading hierarchies, property links,
+PDF options and supported named Base views. Generated-page value checks are
+explicitly selected with `--frontmatter-policy generated`; default presence
+checks preserve existing vault schemas. Native rendering and complex Base YAML
+remain separate checks. See [native conformance](docs/native-conformance.md).
+
+Use `capacity --vault PATH` before large operations. The reviewed
+`capacity compact` operation can recover a formatting-heavy legacy ledger
+without removing records. It refuses content that still exceeds the canonical
+limit. See [capacity and recovery](docs/capacity-and-recovery.md).
+
+Measure an existing BM25 index with `bench --queries FILE --vault PATH`.
+Reports include recall, MRR, per-query misses, negative cases, latency and
+input hashes, with explicit denominators. See [offline evaluation](docs/retrieval-evaluation.md).
+Use the separate [offline prompt evaluator](docs/prompt-evaluation.md) to bind
+synthetic Query/Save cases to instruction hashes and check recorded responses.
+It performs no model calls and does not substitute for host workflow acceptance.
+Optional prefixes can use an explicitly selected installed local Ollama model;
+synthetic prefixes remain the default. See [provider controls](docs/prefix-providers.md).
+
+The Claude plugin namespace is `agricidaniel-obsidian`; repository and vault
+identities remain claude-obsidian. Upgrading from 2.x takes two commands, and
+`/claude-obsidian:*` commands become `/agricidaniel-obsidian:*`:
+
+```bash
+claude plugin marketplace update agricidaniel-claude-obsidian
+claude plugin install agricidaniel-obsidian@agricidaniel-claude-obsidian
+```
+
+Then restart Claude Code. See the [namespace migration](docs/namespace-migration.md).
 
 High-risk accepted claims require two independent sources. Unsupported or
 contradictory evidence stays visible, and a grounded refusal is preferred over
@@ -355,8 +405,8 @@ remain yours.
 - Bash for setup, optional extensions, and shell test suites
 - Git only for development, releases, or an explicit knowledge checkpoint
 - A current Claude Code release for the Claude Code plugin path: the
-  exec-form `args` command hook and the `compact` `SessionStart` matcher used
-  by `hooks/hooks.json` need it (see the
+  exec-form `args` command hook and the `compact` and `fork` `SessionStart`
+  matchers used by `hooks/hooks.json` need it (see the
   [Claude Code hooks contract](https://code.claude.com/docs/en/hooks)). Other
   supported hosts and the portable CLI have no Claude Code version
   dependency.

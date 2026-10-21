@@ -12,7 +12,7 @@ test -f "$CORE"
 ## Claude marketplace plugin
 
 Install the plugin through its marketplace and invoke namespaced skills such as
-`/claude-obsidian:wiki`. Plugin assets live in an ephemeral cache. Mutable vault
+`/agricidaniel-obsidian:wiki`. Plugin assets live in an ephemeral cache. Mutable vault
 state must resolve from the project, `--vault`, or workspace configuration,
 never `${CLAUDE_PLUGIN_ROOT}`.
 

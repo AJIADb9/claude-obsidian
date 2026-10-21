@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import json
 import io
+import os
+import re
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -42,13 +45,39 @@ def test_hook_schema_uses_supported_session_start_shape() -> None:
     assert "PostToolUse" not in hooks
     session = hooks["SessionStart"]
     assert len(session) == 1
-    assert session[0]["matcher"] == "startup|resume|clear|compact"
+    assert session[0]["matcher"] == "startup|resume|clear|compact|fork"
     for handler in session[0]["hooks"]:
         assert handler["type"] in {"command", "mcp_tool"}
         assert handler["command"] == "python3"
         assert handler["args"][0].startswith("${CLAUDE_PLUGIN_ROOT}/")
     assert hooks["Stop"][0]["hooks"][0]["type"] == "command"
     assert "matcher" not in hooks["Stop"][0]
+
+
+def test_fork_dispatch_keeps_session_context_explicit_and_read_only() -> None:
+    config = json.loads((ROOT / "hooks/hooks.json").read_text(encoding="utf-8"))
+    matches = [group for group in config["hooks"]["SessionStart"] if re.fullmatch(group.get("matcher", ".*"), "fork")]
+    assert len(matches) == 1, "fork must dispatch the current SessionStart handler"
+    handler = matches[0]["hooks"][0]
+    command = [handler["command"], *[arg.replace("${CLAUDE_PLUGIN_ROOT}", str(ROOT)) for arg in handler["args"]]]
+    with tempfile.TemporaryDirectory() as directory:
+        vault = make_vault(Path(directory) / "vault", "FORK_CONTEXT_SENTINEL\n")
+        before = {p.relative_to(vault).as_posix(): p.read_bytes() for p in vault.rglob("*") if p.is_file()}
+        for enabled in (False, True):
+            env = {key: value for key, value in os.environ.items() if not key.startswith("CLAUDE_OBSIDIAN_")}
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
+            env["CLAUDE_OBSIDIAN_VAULT"] = str(vault)
+            if enabled:
+                env["CLAUDE_OBSIDIAN_SESSION_CONTEXT"] = "1"
+            result = subprocess.run(command, cwd=vault, env=env, input=json.dumps({"hook_event_name": "SessionStart", "source": "fork", "cwd": str(vault)}), capture_output=True, text=True, timeout=10)
+            assert result.returncode == 0, result.stderr
+            if enabled:
+                assert "FORK_CONTEXT_SENTINEL" in result.stdout
+                assert len(result.stdout.encode("utf-8")) < MAX_CONTEXT_BYTES + 1000
+            else:
+                assert result.stdout == ""
+            after = {p.relative_to(vault).as_posix(): p.read_bytes() for p in vault.rglob("*") if p.is_file()}
+            assert before == after
 
 
 def test_context_is_bounded_and_delimiter_safe() -> None:
@@ -429,7 +458,11 @@ def test_stop_status_scopes_recovery_advice_for_mixed_journals() -> None:
 
 
 def main() -> None:
+    test_hook_dispatch_avoids_full_cli_imports()
+    test_session_start_script_emits_utf8_under_a_legacy_console_encoding()
+    test_session_context_fifo_hot_cache_never_blocks()
     test_hook_schema_uses_supported_session_start_shape()
+    test_fork_dispatch_keeps_session_context_explicit_and_read_only()
     test_context_is_bounded_and_delimiter_safe()
     test_context_is_silent_without_explicit_environment_opt_in()
     test_project_config_cannot_redirect_global_context_consent()
@@ -446,6 +479,77 @@ def main() -> None:
     test_stop_status_regular_journal_read_failure_requires_manual_inspection()
     test_stop_status_scopes_recovery_advice_for_mixed_journals()
     print("All hook tests passed.")
+
+
+def _hook_env(vault: Path) -> dict[str, str]:
+    env = {key: value for key, value in os.environ.items() if not key.startswith("CLAUDE_OBSIDIAN_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["CLAUDE_OBSIDIAN_VAULT"] = str(vault)
+    env["CLAUDE_OBSIDIAN_SESSION_CONTEXT"] = "1"
+    return env
+
+
+def test_session_start_script_emits_utf8_under_a_legacy_console_encoding() -> None:
+    text = "Café résumé — ✓ 日本"
+    with tempfile.TemporaryDirectory() as td:
+        vault = make_vault(Path(td) / "vault", text + "\n")
+        env = _hook_env(vault)
+        env["PYTHONIOENCODING"] = "cp1252"
+        for event in ("session-start", "stop"):
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/claude-obsidian.py"), "hook", event],
+                cwd=vault, env=env, capture_output=True, timeout=20,
+            )
+            assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+            if event == "session-start":
+                assert text in result.stdout.decode("utf-8"), result.stdout
+
+
+def test_session_context_fifo_hot_cache_never_blocks() -> None:
+    if not hasattr(os, "mkfifo"):
+        return
+    with tempfile.TemporaryDirectory() as td:
+        vault = make_vault(Path(td) / "vault", "safe\n")
+        (vault / "wiki/hot.md").unlink()
+        os.mkfifo(vault / "wiki/hot.md")
+        try:
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/claude-obsidian.py"), "hook", "session-start"],
+                cwd=vault, env=_hook_env(vault), capture_output=True, text=True, timeout=20,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AssertionError("SessionStart blocked on a FIFO hot cache") from exc
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == ""
+
+
+def test_hook_dispatch_avoids_full_cli_imports() -> None:
+    probe = (
+        "import json, runpy, sys; "
+        "sys.argv=['claude-obsidian.py','hook',sys.argv[1]]; "
+        "script=sys.argv[0]; "
+        "\ntry: runpy.run_path(" + repr(str(ROOT / "scripts/claude-obsidian.py")) + ", run_name='__main__')"
+        "\nexcept SystemExit as exc: assert exc.code == 0"
+        "\nprint(json.dumps(sorted(name for name in sys.modules if name.startswith('claude_obsidian'))))"
+    )
+    env = {key: value for key, value in os.environ.items() if not key.startswith("CLAUDE_OBSIDIAN_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    with tempfile.TemporaryDirectory() as td:
+        for event in ("session-start", "stop"):
+            result = subprocess.run(
+                [sys.executable, "-c", probe, event],
+                cwd=td, env=env, text=True, capture_output=True, check=True,
+            )
+            imported = json.loads(result.stdout)
+            assert "claude_obsidian.cli" not in imported, imported
+            assert "claude_obsidian.transaction" not in imported, imported
+            if event == "session-start":
+                assert "claude_obsidian.hook_adapter" not in imported, imported
+    result = subprocess.run(
+        [sys.executable, "-c", "import claude_obsidian.hook_adapter, sys; assert 'claude_obsidian.transaction' not in sys.modules"],
+        cwd=ROOT, env=env, text=True, capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 if __name__ == "__main__":

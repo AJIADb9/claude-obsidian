@@ -199,7 +199,11 @@ def chunk_is_current(hit, chunk, page_path, page_hash_cache):
     page_hash = chunk.get("page_body_hash")
     if not isinstance(raw_text, str) or not valid_sha256(body_hash):
         return False
-    if sha256(raw_text) != body_hash or not valid_sha256(page_hash):
+    try:
+        actual_body_hash = sha256(raw_text)
+    except UnicodeError:
+        return False
+    if actual_body_hash != body_hash or not valid_sha256(page_hash):
         return False
 
     indexed_body_hash = hit.get("body_hash")
@@ -216,9 +220,9 @@ def chunk_is_current(hit, chunk, page_path, page_hash_cache):
             # chunker computed; read_text would normalize newlines and drop
             # every candidate as stale on CRLF vaults.
             page_hash_cache[cache_key] = sha256(
-                page_path.read_bytes().decode("utf-8", errors="replace")
+                page_path.read_bytes().decode("utf-8")
             )
-        except OSError:
+        except (OSError, UnicodeError):
             page_hash_cache[cache_key] = None
     return page_hash_cache[cache_key] == page_hash
 
@@ -298,7 +302,10 @@ def main(argv=None):
             continue
         try:
             chunk = json.loads(chunk_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except (ValueError, RecursionError, UnicodeError, OSError):
+            stale_candidates += 1
+            continue
+        if not isinstance(chunk, dict):
             stale_candidates += 1
             continue
         page_path = resolve_vault_file(chunk.get("page_path"), required_root=WIKI_DIR)

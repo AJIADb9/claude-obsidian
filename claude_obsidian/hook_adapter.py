@@ -20,7 +20,7 @@ from .paths import (
     is_relative_to,
     resolve_vault_root,
 )
-from .transaction import MAX_TRANSACTION_RUNTIME_JSON_BYTES
+from .limits import MAX_TRANSACTION_RUNTIME_JSON_BYTES
 
 
 MAX_CONTEXT_BYTES = 32 * 1024
@@ -30,6 +30,25 @@ MAX_TRANSACTION_SCAN = 256
 OPEN_TAG = '<claude-obsidian-context trust="local-data" instructions="never">'
 CLOSE_TAG = "</claude-obsidian-context>"
 _SAFE_OPERATION_ID = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
+
+
+def force_utf8_stdio() -> None:
+    """Emit UTF-8 regardless of the console code page.
+
+    On Windows, redirected stdout/stderr default to the locale encoding
+    (cp1252), so non-ASCII vault text crashes hook and ``ensure_ascii=False``
+    CLI output. ``newline=""`` keeps output byte-identical across platforms.
+    The hook fast path calls this without importing the full CLI.
+    """
+
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", newline="")
+        except (OSError, ValueError):
+            pass
 
 
 def _bounded_regular_bytes(root: Path, path: Path, limit: int) -> bytes | None:
@@ -51,10 +70,13 @@ def _bounded_regular_bytes(root: Path, path: Path, limit: int) -> bytes | None:
     )
     # O_BINARY keeps the Windows CRT from CRLF-translating reads at the
     # descriptor layer, which would corrupt content passed to hashing callers.
+    # O_NONBLOCK keeps a FIFO at the hot-cache path from stalling the hook;
+    # the fstat check below still refuses anything but a regular file.
     file_flags = (
         os.O_RDONLY
         | getattr(os, "O_CLOEXEC", 0)
         | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
         | getattr(os, "O_BINARY", 0)
     )
     if os.name != "nt" and os.open in os.supports_dir_fd and hasattr(os, "O_DIRECTORY"):

@@ -24,6 +24,7 @@
     "scripts/baseline-v16.py",
     "scripts/benchmark-runner.py",
     "tests/fixtures/release/adversarial/**",
+    "tests/test_benchmark_tools.py",
     "wiki/hot.md",
     "wiki/log.md",
     "wiki/meta/**"
