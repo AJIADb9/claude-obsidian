@@ -430,6 +430,7 @@ def source_page_is_current(data, vault_root, hash_cache, *, vault_root_fd=None):
                     limit=64 * 1024 * 1024,
                     missing_ok=False,
                     root_fd=vault_root_fd,
+                    existing=True,
                 )
                 assert raw is not None
                 text = raw.decode("utf-8")

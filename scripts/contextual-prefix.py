@@ -513,6 +513,7 @@ def read_page(path, *, root_fd=None):
             limit=64 * 1024 * 1024,
             missing_ok=False,
             root_fd=root_fd,
+            existing=True,
         )
     except (ValueError, TransactionError) as exc:
         log(f"ERR: cannot read pinned page {path}: {exc}")

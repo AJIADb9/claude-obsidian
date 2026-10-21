@@ -552,6 +552,52 @@ def test_historical_synthetic_collision_paths_remain_distinct() -> None:
         )
 
 
+def test_decomposed_unicode_page_is_chunked_and_indexed() -> None:
+    # macOS and vaults synced from it store decomposed (NFD) names. One such
+    # page used to stop chunking for the whole vault.
+    import unicodedata
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        wiki = root / "wiki"
+        wiki.mkdir()
+        (root / ".obsidian").mkdir()
+        name = unicodedata.normalize("NFD", "Café mémoire") + ".md"
+        try:
+            (wiki / name).write_text(
+                "---\ntitle: Cafe\n---\nA note synced from macOS.\n", encoding="utf-8"
+            )
+        except OSError:
+            print("SKIP decomposed filename unsupported by this filesystem")
+            return
+        (wiki / "Other.md").write_text("---\ntitle: Other\n---\nBody.\n", encoding="utf-8")
+        commands = [
+            [sys.executable, str(HELPER), "--vault", str(root), "--all", "--no-llm"],
+            [sys.executable, str(ROOT / "scripts" / "bm25-index.py"), "--vault", str(root), "build"],
+            [sys.executable, str(ROOT / "scripts" / "bm25-index.py"), "--vault", str(root), "build"],
+        ]
+        for command in commands:
+            result = subprocess.run(
+                command, capture_output=True, text=True, timeout=30, check=False
+            )
+            assert_eq(
+                f"{Path(command[1]).name} {command[-1]} succeeds",
+                0,
+                result.returncode,
+            )
+            output = result.stdout + result.stderr
+            assert_true("no page is refused", "ERR" not in output and "skip (" not in output)
+        records = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in (root / ".vault-meta/chunks").glob("*/chunk-000.json")
+        ]
+        assert_eq(
+            "both pages are chunked",
+            sorted(["wiki/" + name, "wiki/Other.md"]),
+            sorted(record["page_path"] for record in records),
+        )
+
+
 def test_duplicate_explicit_address_fails_before_any_write() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
@@ -1847,6 +1893,7 @@ def main():
     test_long_single_paragraph_is_hard_split_with_bounded_prefixes()
     test_process_page_prunes_surplus_chunks_and_invalidates_index()
     test_full_reconcile_removes_deleted_page_chunks()
+    test_decomposed_unicode_page_is_chunked_and_indexed()
     test_historical_synthetic_collision_paths_remain_distinct()
     test_duplicate_explicit_address_fails_before_any_write()
     test_symlinked_chunk_address_never_writes_or_deletes_outside()

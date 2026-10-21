@@ -33,6 +33,7 @@ import argparse
 import hashlib
 import json
 import re
+import stat
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -253,9 +254,9 @@ def _markdown_filename(stem, prefix=""):
 
 
 def _existing_page(relative):
-    """Return True when a regular file already exists at a vault path."""
+    """Return True when a regular, non-link file already exists at a vault path."""
     try:
-        return (VAULT_ROOT / relative).is_file()
+        return stat.S_ISREG((VAULT_ROOT / relative).lstat().st_mode)
     except (OSError, ValueError):
         return False
 
