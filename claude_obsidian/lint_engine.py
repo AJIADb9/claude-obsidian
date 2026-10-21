@@ -579,6 +579,7 @@ def _page_metadata(
         canonical,
         limit=_transaction_file_limit(),
         missing_ok=False,
+        existing=True,
     )
     assert raw is not None
     text = raw.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")

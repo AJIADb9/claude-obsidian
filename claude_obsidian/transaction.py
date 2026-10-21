@@ -265,14 +265,24 @@ def safe_operation_id(value: Any) -> str:
     return value
 
 
-def _normalize_vault_path(value: Any) -> str:
-    """Validate the portable lexical form of one vault-relative path."""
+def _normalize_vault_path(value: Any, *, existing: bool = False) -> str:
+    """Validate the portable lexical form of one vault-relative path.
+
+    ``existing`` relaxes the portability rules for reading a file that is
+    already on disk: a non-NFC name (macOS, or a vault synced from one), a
+    long path, or a POSIX filename containing a backslash. Confinement and
+    the no-follow checks still apply.
+    """
 
     if not isinstance(value, str) or not value:
         raise TransactionValidationError(
             "INVALID_WRITE_PATH", "path must be a non-empty string"
         )
-    if any(character in value for character in ("\x00", "\n", "\r", "\\")):
+    # A backslash is an ordinary filename character only where it is not a
+    # path separator.
+    forbidden = ("\x00", "\n", "\r") if existing and os.sep == "/" and not os.altsep else (
+        "\x00", "\n", "\r", "\\")
+    if any(character in value for character in forbidden):
         raise TransactionValidationError(
             "INVALID_WRITE_PATH", "path contains a control character or backslash"
         )
@@ -286,6 +296,8 @@ def _normalize_vault_path(value: Any) -> str:
         raise TransactionValidationError(
             "NONCANONICAL_WRITE_PATH", f"path must be normalized: {value}"
         )
+    if existing:
+        return normalized
     if unicodedata.normalize("NFC", normalized) != normalized:
         raise TransactionValidationError(
             "NONCANONICAL_UNICODE_PATH",
@@ -333,10 +345,12 @@ def _assert_portable_write_path(value: str) -> None:
             )
 
 
-def _safe_vault_path(vault_root: Path, value: Any) -> tuple[str, Path]:
+def _safe_vault_path(
+    vault_root: Path, value: Any, *, existing: bool = False
+) -> tuple[str, Path]:
     """Validate one canonical vault-relative path and reject symlink traversal."""
 
-    normalized = _normalize_vault_path(value)
+    normalized = _normalize_vault_path(value, existing=existing)
     parsed = PurePosixPath(normalized)
 
     root = canonical(vault_root)
@@ -437,6 +451,7 @@ def _open_parent_directory(
     create: bool,
     root_fd: int | None = None,
     meta_fd: int | None = None,
+    existing: bool = False,
 ) -> tuple[int, str]:
     """Open a target parent from the vault FD without following symlinks."""
 
@@ -448,9 +463,9 @@ def _open_parent_directory(
             "directory-descriptor traversal is unavailable on this platform",
         )
     normalized = (
-        _normalize_vault_path(relative)
+        _normalize_vault_path(relative, existing=existing)
         if root_fd is not None
-        else _safe_vault_path(vault_root, relative)[0]
+        else _safe_vault_path(vault_root, relative, existing=existing)[0]
     )
     parts = PurePosixPath(normalized).parts
     flags = directory_open_flags()
@@ -756,8 +771,13 @@ def read_vault_regular(
     missing_ok: bool = True,
     root_fd: int | None = None,
     meta_fd: int | None = None,
+    existing: bool = False,
 ) -> bytes | None:
-    """Read one bounded regular file through a no-follow vault-relative path."""
+    """Read one bounded regular file through a no-follow vault-relative path.
+
+    Pass ``existing=True`` for a path enumerated from disk, so a name the
+    write rules would refuse (see ``_normalize_vault_path``) stays readable.
+    """
 
     if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
         raise TransactionValidationError(
@@ -765,9 +785,9 @@ def read_vault_regular(
         )
     root = canonical(vault_root)
     if root_fd is None:
-        normalized, path = _safe_vault_path(root, relative)
+        normalized, path = _safe_vault_path(root, relative, existing=existing)
     else:
-        normalized = _normalize_vault_path(relative)
+        normalized = _normalize_vault_path(relative, existing=existing)
         path = root.joinpath(*PurePosixPath(normalized).parts)
     descriptor = -1
     parent_descriptor = -1
@@ -780,6 +800,7 @@ def read_vault_regular(
                     create=False,
                     root_fd=root_fd,
                     meta_fd=meta_fd,
+                    existing=existing,
                 )
                 descriptor = os.open(leaf, read_open_flags(), dir_fd=parent_descriptor)
             except FileNotFoundError:

@@ -292,6 +292,36 @@ tags:
         self.assertEqual("wiki/Broken.md", report["read_errors"][0]["path"])
         self.assertIn("UnicodeDecodeError", report["read_errors"][0]["message"])
 
+    def test_existing_names_refused_for_writes_are_still_linted(self) -> None:
+        # macOS and vaults synced from it store decomposed (NFD) names; a POSIX
+        # filename may hold a backslash. Writes refuse both, reads must not.
+        import unicodedata
+
+        names = [unicodedata.normalize("NFD", "Résumé")]
+        if os.sep == "/":
+            names.append("Back\\slash")
+        with tempfile.TemporaryDirectory() as directory:
+            vault = Path(directory) / "vault"
+            (vault / "wiki").mkdir(parents=True)
+            _mark_vault(vault)
+            (vault / "wiki/Target.md").write_text("# Target\n", encoding="utf-8")
+            created = []
+            for name in names:
+                try:
+                    (vault / "wiki" / f"{name}.md").write_text(
+                        "# Note\n[[Target]]\n", encoding="utf-8"
+                    )
+                except OSError:
+                    continue
+                created.append(name)
+            if not created:
+                self.skipTest("filesystem rejects these filenames")
+            report = lint_engine.lint_vault(vault, as_of="2026-10-20")
+        self.assertEqual([], report["read_errors"])
+        self.assertNotIn(
+            "wiki/Target.md", {item["path"] for item in report["orphans"]}
+        )
+
     def test_non_utf8_filename_is_escaped_in_json_and_markdown_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             vault = Path(directory) / "vault"
@@ -325,14 +355,9 @@ tags:
                 r"wiki/Bad-\\udcff.md",
             }
             self.assertTrue(
-                expected_paths.issubset(
-                    {item["path"] for item in report["orphans"]}
-                    | {item["path"] for item in report["read_errors"]}
-                )
+                expected_paths.issubset({item["path"] for item in report["orphans"]})
             )
-            self.assertEqual(
-                expected_paths, {item["path"] for item in report["read_errors"]}
-            )
+            self.assertEqual([], report["read_errors"])
 
             commands = (
                 [
