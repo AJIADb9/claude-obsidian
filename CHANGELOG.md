@@ -7,7 +7,7 @@ implementation record for older releases.
 
 ## [Unreleased]
 
-## [3.0.0] - 2026-10-20
+## [3.0.0] - 2026-10-21
 
 Hardening release: recoverable transactions, deterministic lint and retrieval,
 offline evaluation, explicit provider controls, and a renamed Claude plugin.
