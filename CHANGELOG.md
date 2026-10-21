@@ -43,6 +43,9 @@ fall back to `claude -p` (see Removed). See the
 
 ### Fixed
 
+- Contextual chunking and BM25 indexing read pages whose names use decomposed
+  Unicode (macOS, or a vault synced from it) or, on POSIX, a backslash. One
+  such page used to stop chunking for the whole vault.
 - `wiki-mode` routes strip `#`, `^`, `[` and `]` from title-preserving
   filenames, which Obsidian cannot link to. Generic source and question routes
   keep the title, and reuse a slugged page filed by an earlier version instead
