@@ -51,6 +51,22 @@ class UpgradeCliTests(unittest.TestCase):
         self.assertIn('PLAN_APPROVAL_REQUIRED', run.stderr)
         self.assertFalse((self.vault / '.vault-meta').exists())
 
+    def test_malformed_bundles_are_controlled_cli_errors(self):
+        deep = self.base / 'deep.json'
+        deep.write_text('[' * 200000 + ']' * 200000)
+        listed = self.base / 'listed.json'
+        listed.write_text(json.dumps({'schema': BUNDLE_SCHEMA, 'operation_id': 'listed', 'operation_type': 'save',
+                                      'expected_hashes': {'wiki/x.md': None},
+                                      'writes': [{'path': 'wiki/x.md', 'mode': ['create'], 'content': 'x\n'}]}))
+        for path, code in ((deep, 'INVALID_BUNDLE'), (listed, 'INVALID_WRITE_MODE')):
+            for command in ('transaction', 'workflow'):
+                with self.subTest(path=path.name, command=command):
+                    run = self.run_cli(command, 'inspect', str(path), '--vault', str(self.vault))
+                    self.assertEqual(2, run.returncode, run.stderr)
+                    self.assertIn(f'ERR {code}:', run.stderr)
+                    self.assertNotIn('Traceback', run.stderr)
+        self.assertFalse((self.vault / '.vault-meta').exists())
+
     def test_generated_policy_is_explicit_and_product_root_is_refused(self):
         args = build_parser().parse_args(['lint', '--vault', str(self.vault), '--frontmatter-policy', 'generated'])
         self.assertEqual('generated', args.frontmatter_policy)

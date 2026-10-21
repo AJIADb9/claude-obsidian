@@ -13,7 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2563eb.svg" alt="MIT license"></a>
   <a href="https://agentskills.io"><img src="https://img.shields.io/badge/Agent%20Skills-compatible-2563eb" alt="Agent Skills compatible"></a>
   <a href="https://code.claude.com/docs/en/plugins"><img src="https://img.shields.io/badge/Claude%20Code-plugin-7c3aed" alt="Claude Code plugin"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v2.2.0-d97745" alt="Release v2.2.0"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v3.0.0-d97745" alt="Release v3.0.0"></a>
 </p>
 
 <p align="center">
@@ -158,8 +158,8 @@ Cursor and Windsurf use workspace-local skill discovery. Marketplace setup,
 every supported host, vault adoption, upgrades, and uninstall steps are covered
 in the [full installation guide](docs/install-guide.md).
 
-After this candidate is published to the clean public marketplace, current
-Claude Code releases can also install it in one step:
+Current Claude Code releases can also install it from the public marketplace
+in one step:
 
 ```text
 /plugin install agricidaniel-obsidian --marketplace AgriciDaniel/claude-obsidian
@@ -280,9 +280,15 @@ Optional prefixes can use an explicitly selected installed local Ollama model;
 synthetic prefixes remain the default. See [provider controls](docs/prefix-providers.md).
 
 The Claude plugin namespace is `agricidaniel-obsidian`; repository and vault
-identities remain claude-obsidian. Existing installations need an explicit
-adapter migration when this candidate is published. See the
-[namespace migration](docs/namespace-migration.md).
+identities remain claude-obsidian. Upgrading from 2.x takes two commands, and
+`/claude-obsidian:*` commands become `/agricidaniel-obsidian:*`:
+
+```bash
+claude plugin marketplace update agricidaniel-claude-obsidian
+claude plugin install agricidaniel-obsidian@agricidaniel-claude-obsidian
+```
+
+Then restart Claude Code. See the [namespace migration](docs/namespace-migration.md).
 
 High-risk accepted claims require two independent sources. Unsupported or
 contradictory evidence stays visible, and a grounded refusal is preferred over

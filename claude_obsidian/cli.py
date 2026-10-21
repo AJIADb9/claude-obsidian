@@ -29,7 +29,7 @@ from .checkpoint import checkpoint_operation
 from .contracts import evaluate_capabilities, validate_contracts
 from .extensions import dragonscale_bundle
 from .gates import evaluate_release_gates
-from .hook_adapter import emit_session_start, emit_stop_status
+from .hook_adapter import emit_session_start, emit_stop_status, force_utf8_stdio
 from .ledgers import LedgerValidationError, migration_bundle, strict_json_loads
 from .lint_engine import lint_vault, render_markdown
 from .mode_config import validate_mode_folders
@@ -132,26 +132,44 @@ def _selection(
     )
 
 
+def _plain_directory_state(path: Path) -> bool | None:
+    """lstat-only: True for a plain directory, None when absent, else False."""
+
+    try:
+        assert_unaliased_directory(path)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return False
+    return True
+
+
 def command_doctor(args: argparse.Namespace) -> int:
     selection = _selection(args)
     root = selection.root
     metadata = root / ".vault-meta"
-    safe_metadata = False
-    try:
-        assert_unaliased_directory(metadata)
-        safe_metadata = True
-        metadata_writable = os_access_writable(metadata)
-    except FileNotFoundError:
+    metadata_state = _plain_directory_state(metadata)
+    safe_metadata = metadata_state is True
+    if metadata_state is None:
         metadata_writable = os_access_writable(root)
-    except OSError:
-        metadata_writable = False
+    else:
+        metadata_writable = safe_metadata and os_access_writable(metadata)
+    # Every apply opens these through no-follow descriptors, so a symlinked
+    # or non-directory entry fails each mutation; report it instead of "ok".
+    lock_state = _plain_directory_state(metadata / "mutation.lock") if safe_metadata else None
+    runtime_state_safe = metadata_state is None or (
+        safe_metadata
+        and _plain_directory_state(metadata / "transactions") is not False
+        and lock_state is not False
+    )
     checks = {
         "vault_exists": root.is_dir(),
         "obsidian_config": (root / ".obsidian").is_dir(),
-        "wiki": (root / "wiki").is_dir(),
+        "wiki": _plain_directory_state(root / "wiki") is True,
         "raw": (root / ".raw").is_dir(),
         "meta_writable": metadata_writable,
-        "mutation_lock_held": safe_metadata and (metadata / "mutation.lock").exists(),
+        "runtime_state_safe": runtime_state_safe,
+        "mutation_lock_held": lock_state is True,
     }
     report = {
         "schema": "claude-obsidian.doctor.v1",
@@ -1338,27 +1356,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _force_utf8_stdio() -> None:
-    """Emit UTF-8 regardless of the console code page.
-
-    On Windows, redirected stdout/stderr default to the locale encoding
-    (cp1252), so any non-ASCII page title crashes ``_emit``'s
-    ``ensure_ascii=False`` output.  ``newline=""`` keeps JSON output
-    byte-identical across platforms.
-    """
-
-    for stream in (sys.stdout, sys.stderr):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is None:
-            continue
-        try:
-            reconfigure(encoding="utf-8", newline="")
-        except (OSError, ValueError):
-            pass
-
-
 def main(argv: Sequence[str] | None = None) -> int:
-    _force_utf8_stdio()
+    force_utf8_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

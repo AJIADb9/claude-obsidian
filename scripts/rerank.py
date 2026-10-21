@@ -44,11 +44,13 @@ Exit codes:
 
 import argparse
 import hashlib
+import http.client
 import json
 import math
 import os
 import re
 import sys
+import time
 import unicodedata
 import urllib.error
 import urllib.parse
@@ -64,9 +66,12 @@ if str(PLUGIN_ROOT) not in sys.path:
 
 from claude_obsidian.paths import VaultSelectionError, assert_within, resolve_vault_root
 from claude_obsidian.ollama import (
+    NoRedirectHandler,
     OllamaLocalProofError,
     OllamaModelUnavailable,
+    open_direct,
     prove_local_model,
+    read_json_object,
     validate_model_response,
 )
 from claude_obsidian.transaction import (
@@ -359,35 +364,35 @@ def validate_ollama_base_url(url):
     return parsed
 
 
-class _NoOllamaRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
+_NoOllamaRedirect = NoRedirectHandler
+
+# Failures that select a no-op rerank. retrieve.py relies on rerank() never
+# raising for a broken or hostile responder on the Ollama port.
+OLLAMA_UNAVAILABLE_ERRORS = (
+    urllib.error.URLError,
+    http.client.HTTPException,
+    OSError,
+    RecursionError,
+    UnicodeError,
+    ValueError,
+)
 
 
 def _open_ollama_request(request, timeout):
-    """Open an Ollama request without ambient proxies or redirects."""
-    opener = urllib.request.build_opener(
-        urllib.request.ProxyHandler({}), _NoOllamaRedirect()
-    )
-    return opener.open(request, timeout=timeout)
+    """Open an Ollama request without proxies or redirects, within one deadline."""
+    return open_direct(request, timeout)
 
 
 def _ollama_json(request, timeout):
+    deadline = time.monotonic() + timeout
     with _open_ollama_request(request, timeout) as response:
-        if response.getcode() != 200:
-            raise ValueError("Ollama returned a non-success status")
-        content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-        if content_type != "application/json":
-            raise ValueError("Ollama response is not application/json")
-        if response.geturl() != request.full_url:
-            raise ValueError("Ollama response target changed")
-        raw = response.read(MAX_RESPONSE_BYTES + 1)
-    if len(raw) > MAX_RESPONSE_BYTES:
-        raise ValueError("Ollama response exceeded the safe byte limit")
-    data = json.loads(raw.decode("utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError("Ollama JSON response must be an object")
-    return data
+        return read_json_object(
+            response,
+            request,
+            limit=MAX_RESPONSE_BYTES,
+            deadline=deadline,
+            label="Ollama",
+        )
 
 
 def ollama_url(allow_remote):
@@ -423,15 +428,16 @@ def ollama_alive(url):
     try:
         req = urllib.request.Request(f"{url}/api/tags", method="GET")
         data = _ollama_json(req, OLLAMA_TIMEOUT_SEC)
+        listed = data.get("models", [])
         models = [
             model["name"]
-            for model in data.get("models", [])
+            for model in (listed if isinstance(listed, list) else [])
             if isinstance(model, dict)
             and isinstance(model.get("name"), str)
             and model["name"]
         ]
         return True, models
-    except (urllib.error.URLError, json.JSONDecodeError, UnicodeError, OSError, ValueError):
+    except OLLAMA_UNAVAILABLE_ERRORS:
         return False, []
 
 
@@ -568,14 +574,8 @@ def rerank(query, candidates, top_k=5, allow_remote=False, model=None):
         )
         mark_noop(candidates, "noop-no-model")
         return candidates[:top_k]
-    except (
-        OllamaLocalProofError,
-        OSError,
-        RecursionError,
-        UnicodeError,
-        ValueError,
-    ) as exc:
-        log(f"local model proof failed: {exc}; no-op rerank")
+    except (OllamaLocalProofError, *OLLAMA_UNAVAILABLE_ERRORS) as exc:
+        log(f"local model proof failed: {type(exc).__name__}: {exc}; no-op rerank")
         mark_noop(candidates, "noop-local-proof")
         return candidates[:top_k]
 
@@ -691,13 +691,7 @@ def main(argv=None):
             try:
                 proof = local_model_proof(url, args.model)
                 strategy = f"cosine:{proof['model']}"
-            except (
-                OllamaLocalProofError,
-                OSError,
-                RecursionError,
-                UnicodeError,
-                ValueError,
-            ):
+            except (OllamaLocalProofError, *OLLAMA_UNAVAILABLE_ERRORS):
                 strategy = "noop-local-proof"
         print(json.dumps({
             "query": args.query,

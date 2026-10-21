@@ -59,9 +59,9 @@ the designs are theirs.
 | Nomic `search_query` and `search_document` task prefixes in the reranker, including the `with_task_prefix` helper and cache-scheme invalidation | maartengoet | https://github.com/AgriciDaniel/claude-obsidian/pull/77 |
 | BM25 fallback order preserved in reranker no-op paths (`bm25_score` before `score`) | vinsocci | https://github.com/AgriciDaniel/claude-obsidian/pull/62 |
 
-The unreleased local reliability update also draws on the following diagnosed
-fixes and proposals. These credits do not imply that a pull request was merged
-or accepted without revision.
+Version 3.0.0 also draws on the following diagnosed fixes and proposals. These
+credits do not imply that a pull request was merged or accepted without
+revision.
 
 | Change or design input | Contributor | Pull request |
 |--------|-------------|--------------|
@@ -71,9 +71,21 @@ or accepted without revision.
 | Optional local Ollama prefix tier, independently reimplemented here with bounded transport and local-model preflight | vinsocci | https://github.com/AgriciDaniel/claude-obsidian/pull/63 |
 | Dataview queries use vault-relative content paths | miraclemanza | https://github.com/AgriciDaniel/claude-obsidian/pull/46 |
 
+These issue reports, several with a diagnosis or a tested patch, led to fixes
+in 3.0.0.
+
+| Report | Reporter | Issue |
+|--------|----------|-------|
+| Lint passed a flat vault clean with 0 pages scanned | RoelKluin | https://github.com/AgriciDaniel/claude-obsidian/issues/200 |
+| Decoding before the fragment split broke `%23`-encoded links | threnard | https://github.com/AgriciDaniel/claude-obsidian/issues/193 |
+| Lint reported existing hidden `.raw` targets as missing files | szrenwei | https://github.com/AgriciDaniel/claude-obsidian/issues/191 |
+| SessionStart and Stop hooks timed out on Windows | ppuri2 | https://github.com/AgriciDaniel/claude-obsidian/issues/168 |
+| CLI transport detection ignored whether this vault was reachable | cosmos75 | https://github.com/AgriciDaniel/claude-obsidian/issues/141 |
+| Glossary proposal | simonc | https://github.com/AgriciDaniel/claude-obsidian/issues/25 |
+
 Pinned ecosystem references, licenses and intentional differences are recorded
 in [config/upstream-references.json](config/upstream-references.json). The
-update's original examples do not incorporate restricted third-party plugin
+3.0.0 original examples do not incorporate restricted third-party plugin
 implementations or personal contributor vaults.
 
 ---

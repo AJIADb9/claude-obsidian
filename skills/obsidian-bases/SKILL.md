@@ -124,8 +124,10 @@ computed properties as `formula.<name>`.
 The [Help syntax](https://obsidian.md/help/bases/syntax) checked 2026-10-17
 still describes date differences in milliseconds. The official
 [1.9.3 changelog](https://obsidian.md/changelog/2025-06-26-desktop-v1.9.3/)
-and [API types at the reviewed commit](https://github.com/obsidianmd/obsidian-api/blob/9abd9605ce081383674aae1ed111c456edde0688/obsidian.d.ts)
-describe a Duration. The pinned upstream skill also uses a Duration field.
+describes a Duration, and the pinned upstream skill also uses a Duration field.
+The recorded excerpts of the
+[API types at the reviewed commit](https://github.com/obsidianmd/obsidian-api/blob/9abd9605ce081383674aae1ed111c456edde0688/obsidian.d.ts)
+do not include a Duration definition, so they are not cited for either reading.
 No native app observation in this update resolves that disagreement.
 
 These retained millisecond expressions are candidates for an isolated test,

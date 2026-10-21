@@ -96,6 +96,39 @@ def _file_snapshot(root: Path) -> dict[str, str]:
 
 
 class DetectTransportTests(unittest.TestCase):
+    def test_probe_timeout_without_killpg_falls_back_and_stops_the_probe(self) -> None:
+        # Native Windows has no os.killpg; a hung CLI must still be stopped.
+        import sys
+        import unittest.mock
+
+        sys.path.insert(0, str(ROOT))
+        from claude_obsidian import transport_probe
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            vault = base / "vault"
+            vault.mkdir()
+            pid_file = base / "probe.pid"
+            binary = base / "obsidian"
+            binary.write_text(
+                "#!/bin/sh\n"
+                f"echo $$ > '{pid_file}'\n"
+                "exec sleep 30\n",
+                encoding="utf-8",
+            )
+            binary.chmod(0o755)
+            with unittest.mock.patch.object(transport_probe.os, "killpg", None, create=True):
+                started = time.monotonic()
+                ok, reason = transport_probe.probe_selected_vault(
+                    str(binary), str(vault), timeout=0.5
+                )
+            self.assertLess(time.monotonic() - started, 10)
+            pid = int(pid_file.read_text().strip())
+        self.assertFalse(ok)
+        self.assertIn("filesystem fallback", reason)
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
+
     def test_official_probe_handles_spaces_unicode_and_uses_version_subcommand(
         self,
     ) -> None:

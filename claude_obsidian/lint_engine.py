@@ -37,6 +37,7 @@ date when supplied and the current UTC calendar date otherwise.
 from __future__ import annotations
 
 import argparse
+import bisect
 import fnmatch
 import html
 import json
@@ -58,8 +59,11 @@ if __package__ in {None, ""}:
 from claude_obsidian.gitignore import GitignoreMatcher
 from claude_obsidian.json_utils import strict_json_loads
 from claude_obsidian.visible_paths import is_visible_path
+from claude_obsidian.limits import MAX_CANONICAL_LEDGER_BYTES
 from claude_obsidian.markdown_links import (
-    iter_markdown_links, markdown_destination as _markdown_destination,
+    HTML_COMPLETE_TAG_RE as _HTML_COMPLETE_TAG_RE, html_block_start as _html_block_start,
+    iter_markdown_links, iter_wikilinks,
+    markdown_destination as _markdown_destination,
     markdown_visible_text,
     mask_comments as _mask_comments,
     mask_protected_regions as _mask_markdown_code,
@@ -101,8 +105,23 @@ _ALLOWLIST_KEYS = {
 
 _TOP_LEVEL_YAML_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):(?:[ \t]*(.*))?$")
 _FENCE_OPEN_RE = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})(?:[^\r\n]*)$")
-_ATX_HEADING_RE = re.compile(r"^[ \t]{0,3}(#{1,6})[ \t]+(.+?)[ \t]*$", re.MULTILINE)
+# The label alternation avoids lazy backtracking over long trailing spaces.
+# Indentation is spaces only: a tab reaches the indented-code column.
+_ATX_HEADING_RE = re.compile(
+    r"^ {0,3}(#{1,6})[ \t]+(.*[^ \t\r\n]|[ \t])[ \t]*$", re.MULTILINE
+)
+_ATX_CLOSING_RE = re.compile(r"(?<![ \t])[ \t]+#+[ \t]*$")
+_HEADING_BLOCK_ID_RE = re.compile(r"(?<![ \t])[ \t]+\^[A-Za-z0-9][A-Za-z0-9_-]*[ \t]*$")
+# Obsidian strips these from heading link text; compare both sides that way.
+_HEADING_LINK_STRIPPED_RE = re.compile(r"%%|[:|^#\[\]]")
 _SETEXT_UNDERLINE_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
+_THEMATIC_BREAK_RE = re.compile(r"^ {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$")
+# One container marker: a blockquote or list item, with one following space.
+_CONTAINER_MARKER_RE = re.compile(r" {0,3}(?:>[ \t]?|(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$))")
+# Inner content starting one of these blocks leaves no paragraph to continue.
+_NON_PARAGRAPH_START_RE = re.compile(
+    r" {0,3}(?:#{1,6}(?:[ \t]|$)|`{3,}|~{3,}|<!--|<\?|<![A-Za-z]|<!\[CDATA\[)"
+)
 # These block starts cannot supply paragraph text to a following Setext line.
 _PARAGRAPH_BREAK_RE = re.compile(
     r"^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-+*][ \t]|\d{1,9}[.)][ \t]|"
@@ -111,7 +130,6 @@ _PARAGRAPH_BREAK_RE = re.compile(
 _BLOCK_ID_RE = re.compile(
     r"(?:^|[ \t])\^([A-Za-z0-9][A-Za-z0-9_-]*)[ \t]*$", re.MULTILINE
 )
-_WIKILINK_RE = re.compile(r"(?P<embed>!)?\[\[(?P<body>[^\]\r\n]+?)\]\]")
 _MARKDOWN_LINK_RE = re.compile(
     r"(?P<embed>!)?\[(?P<label>[^\]\r\n]*)\]\((?P<destination>[^\r\n)]*)\)"
 )
@@ -192,6 +210,15 @@ def _entry_sort_key(entry: dict[str, Any]) -> tuple[Any, ...]:
         ).casefold(),
         str(entry.get("target", entry.get("heading", entry.get("basename", "")))),
     )
+
+
+def _newline_offsets(text: str) -> list[int]:
+    """Index newlines once so many source lines cost a bisection each."""
+    return [match.start() for match in re.finditer("\n", text)]
+
+
+def _line_at(newlines: Sequence[int], offset: int) -> int:
+    return bisect.bisect_left(newlines, offset) + 1
 
 
 def _unquote_yaml_scalar(value: str) -> str:
@@ -427,16 +454,18 @@ def _normalize_heading(value: str, *, render_inline: bool = True) -> str:
         masked = _mask_markdown_code(value)
         pieces: list[str] = []
         cursor = 0
-        for match in _WIKILINK_RE.finditer(masked):
+        for match in iter_wikilinks(masked):
             pieces.append(value[cursor:match.start()])
             pieces.append(_wikilink_visible_label(match))
             cursor = match.end()
         pieces.append(value[cursor:])
         value = ''.join(pieces)
     value = re.sub(r"[*_~`]+", "", value)
-    value = re.sub(r"[ \t]+#+[ \t]*$", "", value)
-    value = re.sub(r"[ \t]+\^[A-Za-z0-9][A-Za-z0-9_-]*[ \t]*$", "", value)
-    return " ".join(value.split()).casefold()
+    value = _ATX_CLOSING_RE.sub("", value)
+    value = _HEADING_BLOCK_ID_RE.sub("", value)
+    exact = " ".join(value.split()).casefold()
+    # A heading made only of stripped characters keeps its exact spelling.
+    return " ".join(_HEADING_LINK_STRIPPED_RE.sub(" ", exact).split()) or exact
 
 
 def _wikilink_visible_label(match: re.Match[str]) -> str:
@@ -444,6 +473,36 @@ def _wikilink_visible_label(match: re.Match[str]) -> str:
     target, separator, alias = match.group("body").partition("|")
     visible = alias if separator and alias.strip() else target
     return _unescape_wikilink(visible.strip())
+
+
+def _container_state(line: str) -> tuple[bool, int | None]:
+    """Describe what a blockquote or list line leaves open for later lines.
+
+    The first value is true when paragraph text is open: only that absorbs
+    following lazy lines. An empty marker or a heading, thematic break, fence,
+    indented code or HTML block inside the container leaves nothing to
+    continue. The second value is the content column of a list-only container
+    whose HTML block continues on lines indented at least that far.
+    """
+    rest = line.expandtabs(4)
+    container = quoted = False
+    while not _THEMATIC_BREAK_RE.match(rest) and (marker := _CONTAINER_MARKER_RE.match(rest)):
+        container = True
+        quoted = quoted or ">" in marker.group(0)
+        rest = rest[marker.end():]
+    column = len(line.expandtabs(4)) - len(rest)
+    if not container or not rest.strip() or _THEMATIC_BREAK_RE.match(rest):
+        return False, None
+    if len(rest) - len(rest.lstrip(" ")) >= 4:
+        return False, None
+    if _HTML_COMPLETE_TAG_RE.match(rest) or _html_block_start(rest) or rest.lstrip(" ").startswith("<!--"):
+        return False, None if quoted else column
+    return not _NON_PARAGRAPH_START_RE.match(rest), None
+
+
+def _split_lines(text: str) -> list[str]:
+    """Split only at ``\n``; masking may blank other Unicode line separators."""
+    return [line for line in re.split(r"(?<=\n)", text) if line]
 
 
 def _headings(masked: str, labels: str) -> list[tuple[int, int, int, str]]:
@@ -456,26 +515,41 @@ def _headings(masked: str, labels: str) -> list[tuple[int, int, int, str]]:
     """
     headings: list[tuple[int, int, int, str]] = []
     paragraph: list[tuple[int, str]] = []
+    lazy_container = False
+    html_column: int | None = None
     offset = 0
-    for raw_line, label_raw in zip(masked.splitlines(keepends=True), labels.splitlines(keepends=True)):
+    for raw_line, label_raw in zip(_split_lines(masked), _split_lines(labels)):
         line = raw_line.rstrip('\r\n')
         label_line = label_raw.rstrip('\r\n')
         atx = _ATX_HEADING_RE.fullmatch(line)
+        label_atx = _ATX_HEADING_RE.fullmatch(label_line) if atx else None
+        # Inline code directly after the marker, as in ``#`x` y``, is
+        # paragraph text: the masked line only looks like a heading.
+        literal_hash = atx is not None and label_atx is None
         underline = _SETEXT_UNDERLINE_RE.fullmatch(line)
-        if atx:
-            label_atx = _ATX_HEADING_RE.fullmatch(label_line)
-            assert label_atx is not None
+        if atx and label_atx:
             headings.append((offset, offset + len(line), len(atx.group(1)),
-                             re.sub(r"[ \t]+#+[ \t]*$", "", label_atx.group(2)).strip()))
+                             _ATX_CLOSING_RE.sub("", label_atx.group(2)).strip()))
             paragraph = []
+            lazy_container, html_column = False, None
         elif underline and _SETEXT_UNDERLINE_RE.fullmatch(label_line) and paragraph:
             label = ' '.join(text.strip() for _, text in paragraph)
             headings.append((paragraph[0][0], offset + len(line),
                              1 if underline.group(1).startswith('=') else 2, label))
             paragraph = []
-        elif not label_line.strip() or underline or _PARAGRAPH_BREAK_RE.match(line):
+        elif not label_line.strip() or underline or (
+                not literal_hash and _PARAGRAPH_BREAK_RE.match(line)):
             paragraph = []
+            # A list item or quote paragraph absorbs following lazy lines, and
+            # a Setext underline cannot be a lazy continuation line.
+            lazy_container, html_column = _container_state(label_line)
+        elif lazy_container:
+            pass
+        elif html_column is not None and (
+                len(expanded := label_line.expandtabs(4)) - len(expanded.lstrip(" ")) >= html_column):
+            pass  # Indented content of an HTML block that opened a list item.
         else:
+            html_column = None
             paragraph.append((offset, label_line))
         offset += len(raw_line)
     return headings
@@ -505,6 +579,7 @@ def _page_metadata(
         canonical,
         limit=_transaction_file_limit(),
         missing_ok=False,
+        existing=True,
     )
     assert raw is not None
     text = raw.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
@@ -513,17 +588,14 @@ def _page_metadata(
     heading_masked = _mask_heading_html(text, frontmatter.end_offset)
     heading_labels = _mask_heading_html(text, frontmatter.end_offset, preserve_inline_code=True)
     parsed_headings = _headings(heading_masked, heading_labels)
-    headings = frozenset(
-        normalized
-        for _, _, _, heading in parsed_headings
-        if (normalized := _normalize_heading(heading))
-    )
+    normalized_headings = [_normalize_heading(heading) for _, _, _, heading in parsed_headings]
+    headings = frozenset(normalized for normalized in normalized_headings if normalized)
     heading_stack: list[tuple[int, str]] = []
     heading_paths: list[tuple[str, ...]] = []
-    for _, _, level, heading in parsed_headings:
+    for (_, _, level, _), normalized in zip(parsed_headings, normalized_headings):
         while heading_stack and heading_stack[-1][0] >= level:
             heading_stack.pop()
-        heading_stack.append((level, _normalize_heading(heading)))
+        heading_stack.append((level, normalized))
         heading_paths.append(tuple(label for _, label in heading_stack))
     block_ids = frozenset(
         match.group(1).casefold() for match in _BLOCK_ID_RE.finditer(masked)
@@ -574,6 +646,15 @@ def _walk_files(root: Path) -> list[Path]:
     return sorted(
         files, key=lambda path: _path_sort_key(path.relative_to(root).as_posix())
     )
+
+
+def _is_declared_vault(path: Path) -> bool:
+    """Report whether ``path`` holds a regular workspace marker file."""
+    try:
+        metadata = (path / ".claude-obsidian.json").lstat()
+    except OSError:
+        return False
+    return stat.S_ISREG(metadata.st_mode) and not is_name_surrogate(metadata)
 
 
 def _wiki_location(root: Path) -> tuple[Path, str]:
@@ -629,15 +710,16 @@ def _wikilink_target(body: str) -> str:
 def _parse_links(page: _Page) -> list[_Link]:
     links: list[_Link] = []
     occupied: list[tuple[int, int]] = []
+    newlines = _newline_offsets(page.masked)
     wikilink_matches = [
-        (match, False, None) for match in _WIKILINK_RE.finditer(page.masked)
+        (match, False, None) for match in iter_wikilinks(page.masked)
     ]
     for start, end in page.frontmatter.property_ranges:
         value = _yaml_scalar(page.text[start:end])
         if isinstance(value, str):
             property_line = page.text.count("\n", 0, start) + 1
             wikilink_matches.extend((match, True, property_line)
-                                   for match in _WIKILINK_RE.finditer(value))
+                                   for match in iter_wikilinks(value))
     for match, in_property, property_line in wikilink_matches:
         raw_target = _wikilink_target(match.group("body"))
         if not raw_target:
@@ -649,7 +731,7 @@ def _parse_links(page: _Page) -> list[_Link]:
         links.append(
             _Link(
                 source=page.path,
-                line=property_line if property_line is not None else page.masked.count("\n", 0, match.start()) + 1,
+                line=property_line if property_line is not None else _line_at(newlines, match.start()),
                 target=raw_target,
                 file_part=file_part,
                 fragment=fragment,
@@ -661,8 +743,12 @@ def _parse_links(page: _Page) -> list[_Link]:
         if not in_property:
             occupied.append(match.span())
 
+    # Body wikilink spans are disjoint and ascending, so one bisection finds
+    # the only span that could contain a Markdown link start.
+    occupied_starts = [start for start, _ in occupied]
     for match in iter_markdown_links(page.masked):
-        if any(start <= match.start < end for start, end in occupied):
+        position = bisect.bisect_right(occupied_starts, match.start) - 1
+        if position >= 0 and match.start < occupied[position][1]:
             continue
         destination = match.destination
         if (
@@ -681,7 +767,7 @@ def _parse_links(page: _Page) -> list[_Link]:
         links.append(
             _Link(
                 source=page.path,
-                line=page.masked.count("\n", 0, match.start) + 1,
+                line=_line_at(newlines, match.start),
                 target=decoded,
                 file_part=file_part,
                 fragment=fragment,
@@ -705,7 +791,12 @@ def _parse_links(page: _Page) -> list[_Link]:
 def _link_queries(
     link: _Link, wiki_prefix: str, source_path: str | None = None
 ) -> tuple[str, list[str]]:
-    raw = urllib.parse.unquote(link.file_part.strip()).replace("\\", "/")
+    # Obsidian wikilink targets are literal; only Markdown destinations are
+    # percent-encoded URLs.
+    raw = link.file_part.strip()
+    if link.markdown_relative:
+        raw = urllib.parse.unquote(raw)
+    raw = raw.replace("\\", "/")
     source = source_path or link.source
     if not raw:
         return raw, [source]
@@ -726,18 +817,26 @@ def _supports_hidden_checks() -> bool:
 
 
 def _hidden_target_queries(
-    link: _Link, wiki_prefix: str, source_path: str | None = None
+    link: _Link, wiki_prefix: str, source_path: str | None = None,
+    within: str | None = None,
 ) -> list[str]:
+    """Return queries naming a dot-prefixed directory or leaf file.
+
+    ``within`` confines the queries to the page root when its parent is not
+    a declared vault.
+    """
     _, queries = _link_queries(link, wiki_prefix, source_path)
     return [query for query in queries if (
         (parts := PurePosixPath(query).parts)
         and not any(part in {"..", "/"} for part in parts)
-        and any(part.startswith(".") for part in parts[:-1])
+        and any(part.startswith(".") for part in parts)
+        and (within is None or (len(parts) > 1 and parts[0] == within))
     )]
 
 
 def _confined_hidden_target(
-    root: Path, link: _Link, wiki_prefix: str, source_path: str | None = None
+    root: Path, link: _Link, wiki_prefix: str, source_path: str | None = None,
+    within: str | None = None,
 ) -> str | None:
     """Inspect explicit hidden targets without indexing or reading their payloads.
 
@@ -746,7 +845,7 @@ def _confined_hidden_target(
     """
     if not _supports_hidden_checks():
         return None
-    for query in _hidden_target_queries(link, wiki_prefix, source_path):
+    for query in _hidden_target_queries(link, wiki_prefix, source_path, within):
         variants = [query]
         if not PurePosixPath(query).suffix:
             variants.extend(query + suffix for suffix in sorted(_EXTENSIONLESS_WIKILINK_SUFFIXES))
@@ -1226,9 +1325,12 @@ def _empty_sections(page: _Page) -> list[dict[str, Any]]:
     headings = page.heading_sections
 
     findings: list[dict[str, Any]] = []
+    newlines: list[int] | None = None
     for index, (_, content_start, level, heading) in enumerate(headings):
         content_end = len(page.masked)
-        for following_start, _, following_level, _ in headings[index + 1 :]:
+        # Index ranges avoid copying the remaining headings for every section.
+        for following in range(index + 1, len(headings)):
+            following_start, _, following_level, _ = headings[following]
             if following_level <= level:
                 content_end = following_start
                 break
@@ -1236,7 +1338,8 @@ def _empty_sections(page: _Page) -> list[dict[str, Any]]:
         # section content.  Inspect the original slice and blank only nested
         # heading lines that were confirmed outside code by ``page.masked``.
         section_chars = list(page.text[content_start:content_end])
-        for nested_start, nested_end, _, _ in headings[index + 1 :]:
+        for following in range(index + 1, len(headings)):
+            nested_start, nested_end, _, _ = headings[following]
             if nested_start >= content_end:
                 break
             if nested_start < content_start:
@@ -1257,7 +1360,9 @@ def _empty_sections(page: _Page) -> list[dict[str, Any]]:
         )
         if section.strip():
             continue
-        line = page.masked.count("\n", 0, headings[index][0]) + 1
+        if newlines is None:
+            newlines = _newline_offsets(page.masked)
+        line = _line_at(newlines, headings[index][0])
         findings.append({"path": page.path, "line": line, "heading": heading})
     return findings
 
@@ -1337,7 +1442,7 @@ def _read_ledger(
     """Read one regular vault ledger without following symlinked components."""
 
     try:
-        raw = _transaction_reader()(root, relative, limit=16 * 1024 * 1024)
+        raw = _transaction_reader()(root, relative, limit=MAX_CANONICAL_LEDGER_BYTES)
         if raw is None:
             return None, []
         try:
@@ -1346,12 +1451,17 @@ def _read_ledger(
             from claude_obsidian.ledgers import strict_json_loads
         payload = strict_json_loads(raw.decode("utf-8"))
     except Exception as exc:
-        return None, [
-            {
-                "path": relative,
-                "message": f"cannot read provenance ledger: {exc.__class__.__name__}",
-            }
-        ]
+        code = getattr(exc, "code", None)
+        message = f"cannot read provenance ledger: {exc.__class__.__name__}"
+        if isinstance(code, str):
+            message += f" {code}"
+        if code == "VAULT_FILE_TOO_LARGE":
+            message += (
+                f"; the ledger exceeds {MAX_CANONICAL_LEDGER_BYTES} bytes. Run "
+                "`claude-obsidian.py capacity` and preview `capacity compact`; "
+                "never truncate ledger records"
+            )
+        return None, [{"path": relative, "message": message}]
     if not isinstance(payload, Mapping):
         return None, [
             {"path": relative, "message": "provenance ledger must be a JSON object"}
@@ -1434,8 +1544,10 @@ def lint_vault(
     """Return a deterministic, JSON-serializable lint report.
 
     ``root`` is normally the vault directory containing ``wiki/``.  Passing a
-    directory named ``wiki`` is also supported.  Symlinked files and symlinked
-    directories are not followed.  The function performs no filesystem writes.
+    directory named ``wiki`` is also supported; its links resolve to parent
+    files only when that parent declares ``.claude-obsidian.json``. Symlinked
+    files and symlinked directories are not followed.  The function performs
+    no filesystem writes.
 
     ``exclude`` is an optional sequence of shell-style glob patterns (matched
     case-insensitively with :mod:`fnmatch`, where ``*`` also matches ``/``)
@@ -1546,7 +1658,13 @@ def lint_vault(
         })
 
     resolution_targets = list(targets)
-    if root_path != vault_root:
+    # A directly linted wiki root resolves parent attachments only inside a
+    # declared vault. An arbitrary parent may hold unrelated private projects.
+    resolution_scope = (
+        None if root_path == vault_root or _is_declared_vault(vault_root)
+        else canonical_wiki_prefix
+    )
+    if resolution_scope is None and root_path != vault_root:
         scanned = set(all_paths)
         for path in _walk_files(vault_root):
             if path in scanned:
@@ -1621,7 +1739,8 @@ def lint_vault(
             if not candidates:
                 source_path = source_paths.get(link.source)
                 hidden_path = _confined_hidden_target(
-                    vault_root, link, canonical_wiki_prefix, source_path
+                    vault_root, link, canonical_wiki_prefix, source_path,
+                    resolution_scope,
                 )
                 if hidden_path is not None:
                     hidden_target_links.append({
@@ -1632,7 +1751,8 @@ def lint_vault(
                     continue
                 if (not _supports_hidden_checks()
                         and _hidden_target_queries(
-                            link, canonical_wiki_prefix, source_path
+                            link, canonical_wiki_prefix, source_path,
+                            resolution_scope,
                         )):
                     hidden_target_links.append({
                         "source": link.source, "line": link.line, "target": link.target,

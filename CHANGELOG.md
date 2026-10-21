@@ -7,8 +7,93 @@ implementation record for older releases.
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-21
+
+Hardening release: recoverable transactions, deterministic lint and retrieval,
+offline evaluation, explicit provider controls, and a renamed Claude plugin.
+The rename is the breaking change; vaults need no migration.
+
+### Upgrading from 2.x
+
+The Claude plugin is now `agricidaniel-obsidian`, so `/claude-obsidian:*`
+commands become `/agricidaniel-obsidian:*`. No alias is provided. Run:
+
+```bash
+claude plugin marketplace update agricidaniel-claude-obsidian
+claude plugin install agricidaniel-obsidian@agricidaniel-claude-obsidian
+```
+
+Then restart Claude Code. Until the install runs, the plugin is not installed.
+Managed settings must change the key by hand. Contextual prefixes no longer
+fall back to `claude -p` (see Removed). See the
+[namespace migration](docs/namespace-migration.md) for verification and rollback.
+
+### Changed
+
+- The Claude plugin is renamed from `claude-obsidian` to
+  `agricidaniel-obsidian`, because Claude Code reserves plugin names starting
+  with `claude-`. The marketplace `renames` map migrates existing installations
+  instead of reporting the plugin as missing; package validation rejects
+  renames chains that do not resolve. The repository, Python package and vault
+  formats keep the claude-obsidian name.
+- Cached contextual prefixes are reused only when they match the current
+  provider settings. Prefixes cached by earlier versions record no settings,
+  so the first run after upgrading regenerates them all; with `--allow-egress`
+  that sends every page to the configured API again.
+
 ### Fixed
 
+- Contextual chunking and BM25 indexing read pages whose names use decomposed
+  Unicode (macOS, or a vault synced from it) or, on POSIX, a backslash. One
+  such page used to stop chunking for the whole vault.
+- `wiki-mode` routes strip `#`, `^`, `[` and `]` from title-preserving
+  filenames, which Obsidian cannot link to. Generic source and question routes
+  keep the title, and reuse a slugged page filed by an earlier version instead
+  of suggesting a duplicate.
+- Lint code spans stop at paragraph boundaries, so a stray backtick no longer
+  hides later links and headings. Link, heading, wikilink, math and code-span
+  scanners are linear on large and adversarial pages. Indented lazy
+  continuation, images inside link labels, quoted and callout fences, lazy
+  Setext candidates, Obsidian-stripped heading links, literal wikilink targets
+  and hidden leaf targets follow Obsidian/CommonMark behavior. A directly
+  linted `wiki/` resolves parent files only when the parent is a vault.
+- Tiling stops sending page text after the first provider failure. Ollama
+  replies are parsed strictly, so duplicate keys cannot hide remote markers;
+  malformed HTTP replies fall back instead of raising. Provider requests have
+  one wall-clock deadline, an unrelated installed cloud model no longer blocks
+  local mode, and an Ollama outage keeps valid local prefixes and the BM25 index.
+- A transaction whose not-yet-applied target is deleted or edited externally
+  rolls back with the original conflict instead of leaving a journal that
+  blocks later operations. Deeply nested or wrongly typed runtime state and
+  bundles return controlled errors, replay rejects a `prepared` journal, and
+  regular-file reads open non-blocking so FIFOs are refused rather than hang.
+- Hook fast paths emit UTF-8 on legacy console encodings. Workflow checks
+  accept the seeded log layout, cap `hot.md` at the session-context limit,
+  require new catalogs to be reachable and ingest to record a source and a real
+  ledger change, and report reused operation IDs as `OPERATION_ID_REUSED`.
+  Doctor reports symlinked or non-directory `wiki/` and runtime state as unsafe.
+- Capacity compaction rewrites only near- or over-capacity ledgers and refuses
+  unfittable input before parsing; migrations write compact canonical ledgers.
+  Claim-anchor validation no longer relies on `assert`.
+- Recovery honors a journaled in-flight marker, so a failed or interrupted
+  rollback never undoes or reports a write that did not begin. HTTPS provider
+  handshakes share the request deadline, and local reserved plugin-name checks
+  follow the host's separator rules.
+- Verification runs on every pull request, including PRs stacked on another
+  PR's branch. Dependabot proposes cooled-down, SHA-pinned GitHub Actions
+  updates, and CodeQL scans the Python core and workflows.
+- The Bases Duration disagreement cites only the recorded evidence (the 1.9.3
+  changelog and the pinned upstream skill), with its local fallback hashes
+  re-pinned. `scripts/evaluate-prompts.py` is executable like its siblings.
+- A timed-out Obsidian CLI probe falls back to the filesystem on hosts without
+  `os.killpg`, and lint names the error code and capacity recovery when a
+  provenance ledger exceeds its limit.
+- The heading scan no longer crashes on a hash followed by inline code or on
+  inline code containing Unicode line separators. Setext headings after
+  non-paragraph container lines, lazy quote continuation, tab-indented hashes
+  and lazy `=` lines inside code spans follow CommonMark. Workflow inspection
+  parses each catalog once, and its guides state that a new MOC must be linked
+  from a catalog declared in `workflow.catalogs`.
 - Evaluator examples use physical temporary directories. macOS-compatible test
   fixtures retain their explicit symlink and invalid-input checks under aliased
   temporary paths without weakening production confinement.
@@ -26,7 +111,7 @@ implementation record for older releases.
   page verification and anchor parsing within each validation call.
 - Canvas permissions require explicit consent for destructive board edits.
   Defuddle documentation describes extraction planning and local capture.
-  Distribution excludes tests for excluded historical benchmark helpers.
+  The historical benchmark test, whose helpers were never distributed, is removed.
 - SessionStart also matches forked sessions on current Claude Code hosts while
   retaining explicit context consent and read-only hook behavior.
 - Workflow catalog navigation ignores YAML comments and accepts supported
@@ -103,14 +188,21 @@ implementation record for older releases.
   redirect refusal and cloud-disabled local-model preflight.
 - Pinned upstream reconciliation, native conformance procedures, canonical
   methodology roles, glossary, consolidation and coordination recipes.
-- A required host compatibility release gate and the owner-qualified
-  `agricidaniel-obsidian` Claude adapter, with explicit legacy migration steps.
+- A required host compatibility release gate.
 
 ### Removed
 
 - Ambient `claude -p` contextual prefix generation. Without an explicitly
   configured API or local Ollama provider, prefixes remain synthetic; a
   subscription CLI can no longer load unrelated tools or host context.
+
+### Thanks
+
+Pull requests from Ychris12138 (#194), Marcos64s (#199), hphsu (#195),
+vinsocci (#63) and miraclemanza (#46), and issue reports from RoelKluin (#200),
+threnard (#193), szrenwei (#191), ppuri2 (#168), cosmos75 (#141) and simonc
+(#25) shaped this release. [ATTRIBUTION.md](ATTRIBUTION.md) lists what each
+one contributed.
 
 ## [2.2.0] - 2026-09-10
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -70,7 +71,7 @@ class PromptEvaluationTests(unittest.TestCase):
         self.assertNotIn("## Migration", reference["content"])
         serialized = json.dumps(self.packet, ensure_ascii=False)
         self.assertNotIn(str(ROOT), serialized)
-        self.assertNotIn("Desktop/Keys", serialized)
+        self.assertNotIn(os.path.expanduser("~"), serialized)
         self.assertNotIn("candidate-prompt-payload", serialized)
         contract = json.dumps(self.packet["response_contract"], ensure_ascii=False)
         for answer_value in ("09:30", "17:00", "18:00", "tentative", "contested"):
@@ -131,10 +132,26 @@ class PromptEvaluationTests(unittest.TestCase):
             response_path.write_text(json.dumps(self.response), encoding="utf-8")
             alias = temporary / "alias"
             alias.symlink_to(actual, target_is_directory=True)
-            with self.assertRaises(PromptEvaluationError):
+            with self.assertRaisesRegex(PromptEvaluationError, "pass the resolved path instead"):
                 evaluate_response(
                     self.packet, alias / "response.json", product_root=ROOT
                 )
+
+    def test_non_regular_response_paths_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory).resolve()
+            candidates = [temporary / "response-directory"]
+            candidates[0].mkdir()
+            if hasattr(os, "mkfifo"):
+                candidates.append(temporary / "response.fifo")
+                os.mkfifo(candidates[-1])
+            for candidate in candidates:
+                with self.subTest(path=candidate.name):
+                    with self.assertRaisesRegex(
+                        PromptEvaluationError,
+                        "response must be a regular non-symlink file",
+                    ):
+                        evaluate_response(self.packet, candidate, product_root=ROOT)
 
     def test_invalid_utf8_source_is_mapped_to_evaluation_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

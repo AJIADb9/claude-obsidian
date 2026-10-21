@@ -18,7 +18,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Sequence
 
 from .json_utils import strict_json_loads
-from .paths import is_name_surrogate, supports_confined_dirfd
+from .paths import is_name_surrogate, linked_path_hint, supports_confined_dirfd
 
 
 QUERY_SCHEMA = "claude-obsidian.retrieval-queries.v1"
@@ -91,6 +91,9 @@ def _read_regular(path: Path, *, limit: int, metadata_only: bool = False) -> byt
     except FileNotFoundError:
         raise
     except OSError as exc:
+        hint = linked_path_hint(path)
+        if hint:
+            raise EvaluationError(f"cannot safely read regular file {path}: {hint}") from exc
         raise EvaluationError(f"cannot safely read regular file {path}: {exc.strerror}") from exc
     finally:
         if descriptor >= 0:

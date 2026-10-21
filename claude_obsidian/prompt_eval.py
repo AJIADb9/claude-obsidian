@@ -18,6 +18,7 @@ from .json_utils import strict_json_loads
 from .paths import (
     directory_open_flags,
     is_name_surrogate,
+    linked_path_hint,
     read_open_flags,
     supports_confined_dirfd,
 )
@@ -110,6 +111,9 @@ def _read_regular(path: Path, *, limit: int, label: str) -> bytes:
         data = b"".join(chunks)
         after = os.fstat(descriptor)
     except OSError as exc:
+        hint = linked_path_hint(path)
+        if hint:
+            raise PromptEvaluationError(f"cannot read {label}: {hint}") from exc
         raise PromptEvaluationError(f"cannot read {label}: {exc}") from exc
     finally:
         if descriptor >= 0:

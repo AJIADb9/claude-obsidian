@@ -72,7 +72,10 @@ python3 "$PREFIX" --vault "$VAULT" --all --local-ollama --ollama-model installed
 
 The prefix adapter verifies cloud-disabled server status and local model
 identity before sending page text. Unsupported or unavailable preflight falls
-back to synthetic prefixes. This requirement can exclude older Ollama servers.
+back to synthetic prefixes for new or changed chunks only; prefixes from the
+same endpoint and model stay in place, so a transient outage leaves an
+unchanged vault's chunks and BM25 index untouched. This requirement can exclude
+older Ollama servers.
 Reranking and tiling use the same local-only proof before query, page, chunk,
 or embedding cache work. `--allow-remote-ollama` approves the endpoint, not
 cloud delegation by the server.
@@ -96,10 +99,10 @@ Nomic models use `search_query:` for the query and `search_document:` for
 candidate text. Nomic v2 has a 512-token input context and Ollama truncates
 longer embedding inputs by default; BM25 still scores the complete chunk.
 Embeddings are cached by exact model, verified digest, input scheme, and hash
-of the exact prefixed input. A missing local Ollama service, missing selected
-model, unusable vector, or any candidate embedding failure falls back for the
-complete result set to the original BM25 order; it never mixes cosine and BM25
-score scales.
+of the exact prefixed input. A missing local Ollama service, malformed HTTP
+reply, missing selected model, unusable vector, or any candidate embedding
+failure falls back for the complete result set to the original BM25 order; it
+never mixes cosine and BM25 score scales.
 
 Query input is bounded at 8,000 normalized characters and result counts must be
 between 1 and 1,000. Oversized queries and invalid limits fail with an

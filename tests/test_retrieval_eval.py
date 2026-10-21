@@ -108,7 +108,9 @@ class LabelSafetyTests(unittest.TestCase):
                 load_queries(alias)
             directory_alias = root / "linked-directory"
             directory_alias.symlink_to(root, target_is_directory=True)
-            with self.assertRaises(EvaluationError):
+            # A system link such as /home on Fedora Atomic is the usual cause,
+            # so the refusal names the link and the path to pass instead.
+            with self.assertRaisesRegex(EvaluationError, "pass the resolved path instead"):
                 load_queries(directory_alias / "queries.json")
             path.write_bytes(b" " * (evaluation.MAX_QUERY_FILE_BYTES + 1))
             with self.assertRaisesRegex(EvaluationError, "limit"):
@@ -116,7 +118,9 @@ class LabelSafetyTests(unittest.TestCase):
             if hasattr(os, "mkfifo"):
                 fifo = root / "queries.fifo"
                 os.mkfifo(fifo)
-                with self.assertRaises(EvaluationError):
+                # An empty FIFO also fails JSON parsing, so require the
+                # regular-file refusal itself rather than any EvaluationError.
+                with self.assertRaisesRegex(EvaluationError, "expected a regular file"):
                     load_queries(fifo)
 
     def test_missing_index_has_exit_10(self) -> None:

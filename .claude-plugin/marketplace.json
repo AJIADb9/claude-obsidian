@@ -18,5 +18,8 @@
       "source": "./"
     }
   ],
-  "version": "2.2.0"
+  "renames": {
+    "claude-obsidian": "agricidaniel-obsidian"
+  },
+  "version": "3.0.0"
 }

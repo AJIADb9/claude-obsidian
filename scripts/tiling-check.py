@@ -31,11 +31,13 @@ Usage:
 
 import argparse
 import hashlib
+import http.client
 import json
 import math
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -58,10 +60,13 @@ if str(PLUGIN_ROOT) not in sys.path:
 
 from claude_obsidian.paths import VaultSelectionError, resolve_vault_root
 from claude_obsidian.ollama import (
+    NoRedirectHandler,
     OllamaLocalProofError,
     OllamaModelUnavailable,
     normalize_model_digest,
+    open_direct,
     prove_local_model,
+    read_json_object,
     validate_model_response,
 )
 from claude_obsidian.transaction import (
@@ -163,35 +168,35 @@ def _validate_ollama_base_url(url: str) -> urllib.parse.ParseResult | None:
     return parsed
 
 
-class _NoOllamaRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
+_NoOllamaRedirect = NoRedirectHandler
+
+# Transport failures that mean "no usable local provider", never a traceback.
+OLLAMA_TRANSPORT_ERRORS = (
+    urllib.error.URLError,
+    http.client.HTTPException,
+    OSError,
+    ValueError,
+    UnicodeError,
+    TimeoutError,
+    RuntimeError,
+)
 
 
 def _open_ollama_request(request: urllib.request.Request, timeout: float):
-    """Open an Ollama request without ambient proxies or redirects."""
-    opener = urllib.request.build_opener(
-        urllib.request.ProxyHandler({}), _NoOllamaRedirect()
-    )
-    return opener.open(request, timeout=timeout)
+    """Open an Ollama request without proxies or redirects, within one deadline."""
+    return open_direct(request, timeout)
 
 
 def _ollama_json(request: urllib.request.Request, timeout: float) -> dict:
+    deadline = time.monotonic() + timeout
     with _open_ollama_request(request, timeout) as response:
-        if response.getcode() != 200:
-            raise ValueError("Ollama returned a non-success status")
-        content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-        if content_type != "application/json":
-            raise ValueError("Ollama response is not application/json")
-        if response.geturl() != request.full_url:
-            raise ValueError("Ollama response target changed")
-        raw = response.read(MAX_RESPONSE_BYTES + 1)
-    if len(raw) > MAX_RESPONSE_BYTES:
-        raise ValueError("Ollama response exceeded the safe byte limit")
-    value = json.loads(raw.decode("utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError("Ollama JSON response must be an object")
-    return value
+        return read_json_object(
+            response,
+            request,
+            limit=MAX_RESPONSE_BYTES,
+            deadline=deadline,
+            label="Ollama",
+        )
 
 
 def _http_get_json(url: str, timeout: float) -> dict:
@@ -218,20 +223,14 @@ def detect_ollama(url: str) -> bool:
     try:
         _http_get_json(f"{url}/api/version", OLLAMA_TIMEOUT_SEC)
         return True
-    except (
-        urllib.error.URLError, OSError, ValueError, UnicodeError,
-        TimeoutError, RuntimeError,
-    ):
+    except OLLAMA_TRANSPORT_ERRORS:
         return False
 
 
 def detect_model(url: str, model: str) -> bool:
     try:
         data = _http_get_json(f"{url}/api/tags", OLLAMA_TIMEOUT_SEC)
-    except (
-        urllib.error.URLError, OSError, ValueError, UnicodeError,
-        TimeoutError, RuntimeError,
-    ):
+    except OLLAMA_TRANSPORT_ERRORS:
         return False
     models = data.get("models")
     if not isinstance(models, list):
@@ -516,12 +515,13 @@ def run_check(
         return EXIT_NO_MODEL
     except (
         OllamaLocalProofError,
+        http.client.HTTPException,
         OSError,
         RecursionError,
         UnicodeError,
         ValueError,
     ) as exc:
-        log(f"ERR: local model proof failed: {exc}")
+        log(f"ERR: local model proof failed: {type(exc).__name__}: {exc}")
         return EXIT_INCOMPLETE
     resolved_model = proof["model"]
     digest = proof["digest"]
@@ -550,6 +550,9 @@ def run_check(
     cached_hits = 0
     skipped_counts: dict[str, int] = {}
     live_paths: set[str] = set()
+    # One provider failure opens a circuit for the whole run: no further page
+    # body is sent, cached vectors still count, and the run is incomplete.
+    provider_failed = False
 
     candidates = sorted(WIKI_DIR.rglob("*.md"))
     scale_n = len(candidates)
@@ -594,17 +597,29 @@ def run_check(
             pages.append((rel, entry["embedding"]))
             cached_hits += 1
             continue
+        if provider_failed:
+            skipped_counts["provider_circuit_open"] = (
+                skipped_counts.get("provider_circuit_open", 0) + 1
+            )
+            continue
+        failure = None
         try:
             emb = embed(body, resolved_model, ollama_url, proof=proof)
         except Exception as exc:
-            log(f"ERR embedding {rel}: {exc}")
+            failure = f"{type(exc).__name__}: {exc}"
+        else:
+            if expected_dimensions is None:
+                expected_dimensions = len(emb)
+            elif len(emb) != expected_dimensions:
+                failure = "provider embedding dimensions differ"
+        if failure is not None:
+            log(f"ERR embedding {rel}: {failure}")
+            log(
+                "ERR: provider circuit opened; no further page text will be "
+                "sent in this run"
+            )
             skipped_counts["embed_error"] = skipped_counts.get("embed_error", 0) + 1
-            continue
-        if expected_dimensions is None:
-            expected_dimensions = len(emb)
-        elif len(emb) != expected_dimensions:
-            log(f"ERR embedding {rel}: provider embedding dimensions differ")
-            skipped_counts["embed_error"] = skipped_counts.get("embed_error", 0) + 1
+            provider_failed = True
             continue
         cache["embeddings"][rel] = {
             "hash": h,
@@ -614,7 +629,7 @@ def run_check(
         pages.append((rel, emb))
         computed += 1
 
-    incomplete = skipped_counts.get("embed_error", 0) > 0
+    incomplete = provider_failed
     orphans = []
     if not incomplete:
         # Orphan GC is safe only after every eligible page was embedded.
@@ -713,6 +728,7 @@ def cmd_peek(ollama_url: str, model: str) -> int:
             diag["model_digest"] = proof["digest"]
         except (
             OllamaLocalProofError,
+            http.client.HTTPException,
             OSError,
             RecursionError,
             UnicodeError,

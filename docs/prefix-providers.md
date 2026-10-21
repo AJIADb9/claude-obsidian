@@ -14,6 +14,14 @@ digest, and local model metadata before transmitting page text. Older servers
 without these fields fall back to synthetic prefixes. A changing model digest
 invalidates cached prefixes on the next explicit build.
 
+When that preflight is unavailable, for example during a transient outage, the
+cause is reported once for the operation and no page text is sent. Existing
+records produced by the same endpoint and model under the current prompt
+revision are kept for unchanged chunks, because their digest cannot be
+re-proved until the server returns. Only new or changed chunks receive a
+synthetic prefix. If no chunk changes, chunk records and the ready BM25 index
+remain byte identical.
+
 The default endpoint is the numeric loopback `127.0.0.1`. The exact hostname
 `localhost` is normalized to `127.0.0.1` before any request, and literal `::1`
 remains available. This prevents local mode from relying on host resolver
@@ -23,6 +31,10 @@ when page contents need transport encryption. Standard certificate hostname
 validation applies to the normalized numeric endpoint, so a certificate for
 only `localhost` does not cover `https://127.0.0.1`. Proxies and redirects are
 disabled. JSON requests and responses are bounded, as are output and timeouts.
+Each timeout is one wall-clock deadline for the complete request: connection,
+upload, response headers and every body read. A server that drips bytes cannot
+extend it. Responses are parsed strictly, and a duplicate object key at any
+depth rejects the response.
 Unsupported responses, refusal, truncation and mismatched model identity
 produce synthetic prefixes and open the operation circuit. Later chunks and
 pages then fall back without another generation request. A user-supplied
@@ -37,13 +49,20 @@ Before any query, page, chunk, or embedding cache work, all Ollama callers
 require server status to report `cloud.disabled` as the Boolean value `true`.
 They also require a selected installed model with a valid digest and nonempty
 local `model_info`. Cloud tags, remote model fields, malformed identity, and
-conflicting alias digests fail this proof. An explicit tag matches exactly. An
+conflicting alias digests fail this proof. Remote fields are decisive in the
+status and model metadata responses, in the model list envelope, and in the
+list entries for the selected model or its permitted alias. Another installed
+cloud model never receives the request and does not block a local model. An
+explicit tag matches exactly. An
 untagged embedding model matches only its exact name or `:latest`, preferring
 the exact name. `--allow-remote-ollama` approves the server endpoint only. It
 does not approve cloud delegation by that server.
 Every embedding GET and POST disables ambient proxies, refuses redirects,
 requires the final response URL to match the requested URL, and reads a bounded
-JSON response. Reranking validates a nonempty query within 8,000 NFKC-normalized
+JSON response within the same per-request wall-clock deadline and strict
+duplicate-key parsing. A malformed HTTP status line or other protocol error is
+treated as an unavailable server: reranking falls back to BM25 order and
+tiling exits 10, or 12 once local proof has begun. Reranking validates a nonempty query within 8,000 NFKC-normalized
 characters and at most 1,000 object candidates with safe relative paths and
 finite scores before model, endpoint, cache, or embedding work. Semantic tiling
 validates threshold schema version 1 and finite bands satisfying
@@ -56,8 +75,12 @@ cache documents exit through the cache corruption contract before any cache
 publication. Rerank cache keys include the verified model digest. Semantic
 tiling cache schema version 2 binds reusable entries to the resolved model name
 and digest. A valid version 1 cache is treated as a miss, while a malformed
-legacy cache remains corruption. Partial or total embedding failure preserves
-the previous cache, prints a provisional incomplete report, and exits 12.
+legacy cache remains corruption. The first semantic tiling embedding failure,
+including an HTTP error, remote identity in the response, or a dimension
+change, opens a circuit for the run: no further page body is sent, and cached
+vectors still contribute to the report. Partial or total embedding failure
+preserves the previous cache, prints a provisional incomplete report, and
+exits 12.
 Malformed rerank chunk JSON,
 including non-text selected content, preserves the whole candidate set through
 the documented BM25 fallback.

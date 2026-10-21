@@ -10,6 +10,19 @@ import time
 from pathlib import Path
 
 
+def _stop_probe(process: subprocess.Popen) -> None:
+    """Kill a timed-out probe and its session; native Windows has no killpg."""
+    killpg = getattr(os, "killpg", None)
+    try:
+        if killpg is not None and hasattr(signal, "SIGKILL"):
+            killpg(process.pid, signal.SIGKILL)
+        else:
+            process.kill()
+    except (ProcessLookupError, PermissionError):
+        pass
+    process.wait()
+
+
 def probe_selected_vault(binary: str, vault: str, *, timeout: float = 5.0) -> tuple[bool, str]:
     """Prove the selected path and exact read command before preferring CLI.
 
@@ -27,11 +40,7 @@ def probe_selected_vault(binary: str, vault: str, *, timeout: float = 5.0) -> tu
                 code = process.wait(timeout=max(0.01, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:
                 if process is not None:
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    process.wait()
+                    _stop_probe(process)
                 return 124, 'selected-vault probe exceeded its time budget'
             except OSError as exc:
                 return 126, f'cannot execute selected-vault probe: {exc.__class__.__name__}'
