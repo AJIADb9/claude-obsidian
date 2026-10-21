@@ -108,7 +108,9 @@ class LabelSafetyTests(unittest.TestCase):
                 load_queries(alias)
             directory_alias = root / "linked-directory"
             directory_alias.symlink_to(root, target_is_directory=True)
-            with self.assertRaises(EvaluationError):
+            # A system link such as /home on Fedora Atomic is the usual cause,
+            # so the refusal names the link and the path to pass instead.
+            with self.assertRaisesRegex(EvaluationError, "pass the resolved path instead"):
                 load_queries(directory_alias / "queries.json")
             path.write_bytes(b" " * (evaluation.MAX_QUERY_FILE_BYTES + 1))
             with self.assertRaisesRegex(EvaluationError, "limit"):

@@ -132,7 +132,7 @@ class PromptEvaluationTests(unittest.TestCase):
             response_path.write_text(json.dumps(self.response), encoding="utf-8")
             alias = temporary / "alias"
             alias.symlink_to(actual, target_is_directory=True)
-            with self.assertRaises(PromptEvaluationError):
+            with self.assertRaisesRegex(PromptEvaluationError, "pass the resolved path instead"):
                 evaluate_response(
                     self.packet, alias / "response.json", product_root=ROOT
                 )

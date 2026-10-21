@@ -129,6 +129,29 @@ def is_name_surrogate(value: os.stat_result) -> bool:
     )
 
 
+def linked_path_hint(path: str | os.PathLike[str] | Path) -> str | None:
+    """Explain the first link in an absolute path for a no-follow refusal.
+
+    Returns None when no component is a link. Otherwise names the link and
+    the resolved path a caller can pass instead, since system links such as
+    /home on Fedora Atomic or /tmp on macOS are a common, innocent cause.
+    """
+
+    path = Path(path)
+    cursor = Path(path.anchor)
+    for part in path.parts[1:]:
+        cursor = cursor / part
+        try:
+            if is_name_surrogate(cursor.lstat()):
+                return (
+                    f"{cursor} is a symbolic link or junction and links are not "
+                    f"followed; pass the resolved path instead: {os.path.realpath(path)}"
+                )
+        except OSError:
+            return None
+    return None
+
+
 def assert_unaliased_directory(path: str | os.PathLike[str] | Path) -> os.stat_result:
     """lstat ``path`` and fail unless it is a plain, non-redirecting directory.
 
