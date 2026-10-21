@@ -7,11 +7,46 @@ implementation record for older releases.
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-20
+
+Hardening release: recoverable transactions, deterministic lint and retrieval,
+offline evaluation, explicit provider controls, and a renamed Claude plugin.
+The rename is the breaking change; vaults need no migration.
+
+### Upgrading from 2.x
+
+The Claude plugin is now `agricidaniel-obsidian`, so `/claude-obsidian:*`
+commands become `/agricidaniel-obsidian:*`. No alias is provided. Run:
+
+```bash
+claude plugin marketplace update agricidaniel-claude-obsidian
+claude plugin install agricidaniel-obsidian@agricidaniel-claude-obsidian
+```
+
+Then restart Claude Code. Until the install runs, the plugin is not installed.
+Managed settings must change the key by hand. Contextual prefixes no longer
+fall back to `claude -p` (see Removed). See the
+[namespace migration](docs/namespace-migration.md) for verification and rollback.
+
+### Changed
+
+- The Claude plugin is renamed from `claude-obsidian` to
+  `agricidaniel-obsidian`, because Claude Code reserves plugin names starting
+  with `claude-`. The marketplace `renames` map migrates existing installations
+  instead of reporting the plugin as missing; package validation rejects
+  renames chains that do not resolve. The repository, Python package and vault
+  formats keep the claude-obsidian name.
+- Cached contextual prefixes are reused only when they match the current
+  provider settings. Prefixes cached by earlier versions record no settings,
+  so the first run after upgrading regenerates them all; with `--allow-egress`
+  that sends every page to the configured API again.
+
 ### Fixed
 
-- Existing `claude-obsidian` installations migrate to `agricidaniel-obsidian`
-  through a marketplace `renames` map instead of reporting the plugin as missing;
-  package validation rejects renames chains that do not resolve.
+- `wiki-mode` routes strip `#`, `^`, `[` and `]` from title-preserving
+  filenames, which Obsidian cannot link to. Generic source and question routes
+  keep the title, and reuse a slugged page filed by an earlier version instead
+  of suggesting a duplicate.
 - Lint code spans stop at paragraph boundaries, so a stray backtick no longer
   hides later links and headings. Link, heading, wikilink, math and code-span
   scanners are linear on large and adversarial pages. Indented lazy
@@ -150,9 +185,7 @@ implementation record for older releases.
   redirect refusal and cloud-disabled local-model preflight.
 - Pinned upstream reconciliation, native conformance procedures, canonical
   methodology roles, glossary, consolidation and coordination recipes.
-- A required host compatibility release gate and the owner-qualified
-  `agricidaniel-obsidian` Claude adapter, migrated through the marketplace
-  `renames` map.
+- A required host compatibility release gate.
 
 ### Removed
 
