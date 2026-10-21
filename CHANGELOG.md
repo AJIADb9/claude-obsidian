@@ -7,7 +7,45 @@ implementation record for older releases.
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-10-21
+
+Restores the Claude plugin name `claude-obsidian`, so commands are
+`/claude-obsidian:*` again. Nothing else changes.
+
+### Upgrading
+
+From 2.x, this is an ordinary update and your commands never change:
+
+```bash
+claude plugin marketplace update agricidaniel-claude-obsidian
+claude plugin update claude-obsidian@agricidaniel-claude-obsidian
+```
+
+If you installed 3.0.0 (`agricidaniel-obsidian`), the marketplace update moves
+your settings back, then install once:
+
+```bash
+claude plugin marketplace update agricidaniel-claude-obsidian
+claude plugin install claude-obsidian@agricidaniel-claude-obsidian
+```
+
+Restart Claude Code after either path. Managed settings that name
+`agricidaniel-obsidian` must change the key by hand.
+
+### Changed
+
+- The Claude plugin is `claude-obsidian` again. The marketplace `renames` map
+  now migrates `agricidaniel-obsidian` back to it; the 3.0.0 map in the other
+  direction is removed, since a name cannot be both current and former.
+- `claude plugin validate` reports the name as reserved, and
+  `claude plugin tag` refuses it, though Claude Code installs and loads it.
+  Keeping the published name is an owner-approved exception: `package validate`
+  accepts `claude-obsidian` and still rejects every other reserved name.
+
 ## [3.0.0] - 2026-10-21
+
+To upgrade, follow 3.0.1 instead: it restores the `claude-obsidian` name that
+this release changed.
 
 Hardening release: recoverable transactions, deterministic lint and retrieval,
 offline evaluation, explicit provider controls, and a renamed Claude plugin.

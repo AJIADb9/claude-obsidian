@@ -13,7 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2563eb.svg" alt="MIT license"></a>
   <a href="https://agentskills.io"><img src="https://img.shields.io/badge/Agent%20Skills-compatible-2563eb" alt="Agent Skills compatible"></a>
   <a href="https://code.claude.com/docs/en/plugins"><img src="https://img.shields.io/badge/Claude%20Code-plugin-7c3aed" alt="Claude Code plugin"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v3.0.0-d97745" alt="Release v3.0.0"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v3.0.1-d97745" alt="Release v3.0.1"></a>
 </p>
 
 <p align="center">
@@ -139,12 +139,12 @@ claude --plugin-dir /absolute/path/to/claude-obsidian
 Start with:
 
 ```text
-/agricidaniel-obsidian:wiki
+/claude-obsidian:wiki
 ```
 
 Then place a source in `inbox/` and invoke
-`/agricidaniel-obsidian:wiki-ingest`. Save an answer explicitly with
-`/agricidaniel-obsidian:save`; ask the vault with `/agricidaniel-obsidian:wiki-query`.
+`/claude-obsidian:wiki-ingest`. Save an answer explicitly with
+`/claude-obsidian:save`; ask the vault with `/claude-obsidian:wiki-query`.
 
 For Codex, OpenCode, Gemini, or ZCode, preview and then apply the portable
 skill links from the product checkout:
@@ -162,7 +162,7 @@ Current Claude Code releases can also install it from the public marketplace
 in one step:
 
 ```text
-/plugin install agricidaniel-obsidian --marketplace AgriciDaniel/claude-obsidian
+/plugin install claude-obsidian --marketplace AgriciDaniel/claude-obsidian
 ```
 
 ## 15 skills, one system
@@ -201,7 +201,7 @@ the same evidence, vault-selection, and mutation rules.
 | `think` | A structured observe, listen, connect, create, and grow review loop |
 
 Claude Code exposes namespaced invocations such as
-`/agricidaniel-obsidian:wiki-lint`; other hosts use their native Agent Skills
+`/claude-obsidian:wiki-lint`; other hosts use their native Agent Skills
 invocation. Trigger phrases and exact contracts live in each
 `skills/<name>/SKILL.md`.
 
@@ -279,16 +279,17 @@ It performs no model calls and does not substitute for host workflow acceptance.
 Optional prefixes can use an explicitly selected installed local Ollama model;
 synthetic prefixes remain the default. See [provider controls](docs/prefix-providers.md).
 
-The Claude plugin namespace is `agricidaniel-obsidian`; repository and vault
-identities remain claude-obsidian. Upgrading from 2.x takes two commands, and
-`/claude-obsidian:*` commands become `/agricidaniel-obsidian:*`:
+Commands stay `/claude-obsidian:*`. Upgrading from 2.x is an ordinary update:
 
 ```bash
 claude plugin marketplace update agricidaniel-claude-obsidian
-claude plugin install agricidaniel-obsidian@agricidaniel-claude-obsidian
+claude plugin update claude-obsidian@agricidaniel-claude-obsidian
 ```
 
-Then restart Claude Code. See the [namespace migration](docs/namespace-migration.md).
+Version 3.0.0 alone used the name `agricidaniel-obsidian`. If you installed it,
+run the marketplace update, then
+`claude plugin install claude-obsidian@agricidaniel-claude-obsidian`. Restart
+Claude Code after either path. See the [namespace migration](docs/namespace-migration.md).
 
 High-risk accepted claims require two independent sources. Unsupported or
 contradictory evidence stays visible, and a grounded refusal is preferred over

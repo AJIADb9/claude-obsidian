@@ -63,7 +63,9 @@ class PackageValidationTests(unittest.TestCase):
             self.assertTrue(validate_package(root)["ok"])
 
     def test_reserved_host_identity_is_rejected_before_distribution(self) -> None:
-        names = ("claude-obsidian", "anthropic-notes", "anthropics-wiki", "cc-plugin-notes", "claude")
+        # claude-obsidian is the owner-approved published identity, so a
+        # near miss stands in for it here.
+        names = ("claude-notes", "claude-obsidian-wiki", "anthropic-notes", "anthropics-wiki", "cc-plugin-notes", "claude")
         for name in names:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -78,7 +80,7 @@ class PackageValidationTests(unittest.TestCase):
                 marketplace_path.write_text(json.dumps(marketplace))
                 codes = {item["code"] for item in validate_package(root)["findings"]}
                 self.assertIn("reserved_plugin_name", codes)
-                plugin["name"] = "agricidaniel-obsidian"
+                plugin["name"] = "claude-obsidian"
                 marketplace["plugins"][0]["name"] = plugin["name"]
                 plugin_path.write_text(json.dumps(plugin))
                 marketplace_path.write_text(json.dumps(marketplace))
@@ -385,14 +387,16 @@ class PackageValidationTests(unittest.TestCase):
                 self.assertEqual(reserved, "reserved_plugin_name" in codes)
 
     def test_published_marketplace_migrates_the_former_plugin_identity(self) -> None:
+        # 3.0.0 shipped as agricidaniel-obsidian; 3.0.1 restores claude-obsidian.
         plugin = json.loads(
             (ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
+        self.assertEqual("claude-obsidian", plugin["name"])
         for relative in (".claude-plugin/marketplace.json", "config/public-marketplace.json"):
             with self.subTest(relative):
                 marketplace = json.loads((ROOT / relative).read_text(encoding="utf-8"))
                 self.assertEqual(
-                    {"claude-obsidian": plugin["name"]}, marketplace.get("renames")
+                    {"agricidaniel-obsidian": plugin["name"]}, marketplace.get("renames")
                 )
 
     def test_skills_cannot_invoke_product_helpers_relative_to_the_vault_cwd(
