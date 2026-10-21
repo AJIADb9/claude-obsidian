@@ -71,7 +71,7 @@ class PromptEvaluationTests(unittest.TestCase):
         self.assertNotIn("## Migration", reference["content"])
         serialized = json.dumps(self.packet, ensure_ascii=False)
         self.assertNotIn(str(ROOT), serialized)
-        self.assertNotIn("Desktop/Keys", serialized)
+        self.assertNotIn(os.path.expanduser("~"), serialized)
         self.assertNotIn("candidate-prompt-payload", serialized)
         contract = json.dumps(self.packet["response_contract"], ensure_ascii=False)
         for answer_value in ("09:30", "17:00", "18:00", "tentative", "contested"):
