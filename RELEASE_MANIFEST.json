@@ -4,13 +4,13 @@
     {
       "mode": "0644",
       "path": ".claude-plugin/marketplace.json",
-      "sha256": "8fb6a7d47ede9b8fdd3846e77d429148d8561eb73a25fa0f821e8254dcc58014",
+      "sha256": "8afe407656999dd4f076bdbd844f7ba208828665d6a1654cfe3012486d02a69b",
       "size": 914
     },
     {
       "mode": "0644",
       "path": ".claude-plugin/plugin.json",
-      "sha256": "625487ea39992b618daacb46a942bb83688b9ca1b2ce83bdc9afa43da32cbc42",
+      "sha256": "6ef307403c73b7084866c42e75d2cc5f9dcc9708eda7cbc5f2b19f6a13dfe709",
       "size": 976
     },
     {
@@ -100,13 +100,13 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "40155f4d45c6c367bd8b90e727d09c975371d2d298e178387a40372860b2e01e",
-      "size": 31872
+      "sha256": "08b4ea44eb0b11217ac147f9cbbddd66b2c78a5d7a1b4ed211440a2fe1a3dbe9",
+      "size": 33550
     },
     {
       "mode": "0644",
       "path": "CITATION.cff",
-      "sha256": "3d4f591e594aa8e68380958c55cfe13b0dd4d3bc0365c51e4cc46023a5c4eb05",
+      "sha256": "636012b7a9801091eb0d598b45c402543570a8221785be2b327b7b3053ed105b",
       "size": 468
     },
     {
@@ -154,8 +154,8 @@
     {
       "mode": "0644",
       "path": "README.md",
-      "sha256": "14c53428735d9e2eddd8afdab088f45e81f01b719f12e391e5b34899f7c8a62f",
-      "size": 20253
+      "sha256": "c2ddecc6437e82a67a6f9357616ca012fb75e353a6ea978d3a4c0809be3d22c5",
+      "size": 20381
     },
     {
       "mode": "0644",
@@ -226,7 +226,7 @@
     {
       "mode": "0644",
       "path": "claude_obsidian/__init__.py",
-      "sha256": "2668fa2485413e7450bab4fe51ec493de601580aca3d56d3fb8412f96ea0a84b",
+      "sha256": "ae68009783439596bf51ecf8ce3a06d1ec94998e5c336b285b78f3bca0e7c549",
       "size": 296
     },
     {
@@ -322,8 +322,8 @@
     {
       "mode": "0644",
       "path": "claude_obsidian/lint_engine.py",
-      "sha256": "ce4b402292bb01baf487bc257df957c3475a37818d9a1405a410986d6f73144a",
-      "size": 85497
+      "sha256": "ed5f174047db1c16e966fa4a50f68f7b56c8133dfcb7bb6de2ca66b8ccaeb353",
+      "size": 85520
     },
     {
       "mode": "0644",
@@ -358,14 +358,14 @@
     {
       "mode": "0644",
       "path": "claude_obsidian/paths.py",
-      "sha256": "1c276ed920b9e6e9ee62cdc51442ccd7a729faf2e2d42997948d15b73a6d5370",
-      "size": 14860
+      "sha256": "9c58d9a3e96f5355e5fde615ed06efd8412f68b31511640b130cf99b3cbe0be6",
+      "size": 15703
     },
     {
       "mode": "0644",
       "path": "claude_obsidian/prompt_eval.py",
-      "sha256": "e19bb9a521eabceb2abe975ac35b971c2948e59aabc37a754e1548483f2996ac",
-      "size": 31817
+      "sha256": "51625e2f2dd214a0e85ba59da9665b4a9f3452c89aec006a1f5b6ab289ee0bf4",
+      "size": 31975
     },
     {
       "mode": "0644",
@@ -376,14 +376,14 @@
     {
       "mode": "0644",
       "path": "claude_obsidian/retrieval_eval.py",
-      "sha256": "22ebd57ab8d7198f3aa79b9b835d0cb9a91c48365be06bdb648db9765e097c18",
-      "size": 19593
+      "sha256": "dd31f586226987bc3a8550cb2ab278b2f3b84a2fea482c0aa296deb9fb81653c",
+      "size": 19760
     },
     {
       "mode": "0644",
       "path": "claude_obsidian/transaction.py",
-      "sha256": "b13168cda60645f0a4a0e4ecdd5c76eaef64464e23d979bb571303827aeefb56",
-      "size": 194222
+      "sha256": "f67bc5e037c4bf3c46669e38622dc08e4ad40c6a787fd37c27cdbd0d5a4a3128",
+      "size": 195146
     },
     {
       "mode": "0644",
@@ -436,7 +436,7 @@
     {
       "mode": "0644",
       "path": "config/public-marketplace.json",
-      "sha256": "8fb6a7d47ede9b8fdd3846e77d429148d8561eb73a25fa0f821e8254dcc58014",
+      "sha256": "8afe407656999dd4f076bdbd844f7ba208828665d6a1654cfe3012486d02a69b",
       "size": 914
     },
     {
@@ -472,8 +472,8 @@
     {
       "mode": "0644",
       "path": "docs/install-guide.md",
-      "sha256": "e5554f4295ae5ecabaf6f1f095621eaf91321bd0f6273112a2d5805ec6710fa5",
-      "size": 11416
+      "sha256": "01a86e997b705ae7f7574ca56e5f5021814560ae6b759252d219439e134f7dc2",
+      "size": 11396
     },
     {
       "mode": "0644",
@@ -484,8 +484,8 @@
     {
       "mode": "0644",
       "path": "docs/namespace-migration.md",
-      "sha256": "424633e31393f445e9e58ac3eda82eba9ab1b3887692ab4c6397980940dbdeb8",
-      "size": 5147
+      "sha256": "20336bed04b78f1cb3200b4747dd98ac7e1f8fe3df2cefbeb7e9aa88b6936efb",
+      "size": 6076
     },
     {
       "mode": "0644",
@@ -628,8 +628,8 @@
     {
       "mode": "0755",
       "path": "scripts/bm25-index.py",
-      "sha256": "cbbb7d7067997d8d58e3d5e8bb179f340a91053e2f1d6b07eeaf3abfeae6847e",
-      "size": 31677
+      "sha256": "8dc8503ae0ed73715b6d2ffef62d95235612e5040e7d0ad2c0309cced90c78ef",
+      "size": 31712
     },
     {
       "mode": "0755",
@@ -646,8 +646,8 @@
     {
       "mode": "0755",
       "path": "scripts/contextual-prefix.py",
-      "sha256": "b19c8c56abc08d39f7a098f9789e28241f09df2e2c6bf1693c3987117003f6f8",
-      "size": 64336
+      "sha256": "1d06add8a1a38babe44a335567ea1f450f23a86322e28550fc2c14ae058484fb",
+      "size": 64363
     },
     {
       "mode": "0755",
@@ -724,8 +724,8 @@
     {
       "mode": "0755",
       "path": "scripts/wiki-mode.py",
-      "sha256": "dcbeb51785eeeaad1938e1fc74c5d16265b5127b0e7e03508408738e853ed882",
-      "size": 15844
+      "sha256": "7e5b1e5bab26422a8e0ac088d9d3b674c922ded85383cf12f1384b1df0902d90",
+      "size": 16769
     },
     {
       "mode": "0644",
@@ -1312,8 +1312,8 @@
     {
       "mode": "0644",
       "path": "tests/test_contextual_prefix.py",
-      "sha256": "872746d7d9ea11652c3484e91057866871454cfa68a13b1fc8b321cfe04d9338",
-      "size": 86699
+      "sha256": "969d90ae825e2a1447ce5bdf8a7c010a49e058b9529a2f69d18d8c757e95632f",
+      "size": 88720
     },
     {
       "mode": "0644",
@@ -1390,8 +1390,8 @@
     {
       "mode": "0644",
       "path": "tests/test_lint_engine.py",
-      "sha256": "f9a74130468ae6608c4dc7062549dd3b09d695b4c95fe229ebe2441354a1b64f",
-      "size": 111892
+      "sha256": "0c3b7b33e4a24bb3c507fc122c751bb721e92feda607b635e7f3dd41b06649f8",
+      "size": 113025
     },
     {
       "mode": "0644",
@@ -1420,8 +1420,8 @@
     {
       "mode": "0644",
       "path": "tests/test_prompt_eval.py",
-      "sha256": "71d21dd1e8594942af0ed0c58f5b2763e5495f4d4cd4a66a730c638538d41be2",
-      "size": 22930
+      "sha256": "02b8f7bc16f12402a24b29a48949d60aa4e2cf54d863ef25c92ac60878415338",
+      "size": 22978
     },
     {
       "mode": "0644",
@@ -1438,8 +1438,8 @@
     {
       "mode": "0644",
       "path": "tests/test_retrieval_eval.py",
-      "sha256": "6b35a093032c6347ed0d336320241b099bad774a176837d49c5afd2fb19653d0",
-      "size": 11645
+      "sha256": "ec40e49671d7e6fc018ab1b09375716f882e3fb80e0e698edc96feb91a027ac0",
+      "size": 11837
     },
     {
       "mode": "0755",
@@ -1510,8 +1510,8 @@
     {
       "mode": "0644",
       "path": "tests/test_wiki_mode.py",
-      "sha256": "3716641c058c19ca8df880a41906278b919cd8061c3c2113a80605b5e1d19170",
-      "size": 33439
+      "sha256": "b12b91bb1a1dfb04c80930fcde3f6e2700c4b33ccbad22bec7e1f169745477d1",
+      "size": 35174
     },
     {
       "mode": "0644",
@@ -1541,6 +1541,6 @@
     }
   },
   "schema_version": 1,
-  "source_commit": "c51ebb1836def415aba0b734a3068c52b2340060",
-  "source_date_epoch": 1792345943
+  "source_commit": "00db287b1b529a3f46ec9fbc98f50002d42afcea",
+  "source_date_epoch": 1792568762
 }
