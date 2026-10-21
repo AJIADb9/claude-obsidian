@@ -341,6 +341,41 @@ def test_safe_name_strips_path_separators():
     assert_eq("empty after strip → 'untitled'", "untitled", wm.safe_name("/"))
 
 
+def test_safe_name_strips_obsidian_link_syntax():
+    """A filename holding #, ^, [ or ] cannot be a wikilink target."""
+    assert_eq("hash stripped", "C in Depth", wm.safe_name("C# in Depth"))
+    assert_eq(
+        "brackets and hash stripped", "Issue 42 draft", wm.safe_name("Issue #42 [draft]")
+    )
+    assert_eq("caret stripped", "ab", wm.safe_name("a^b"))
+
+
+def test_generic_source_and_question_reuse_legacy_slug_pages():
+    """Re-filing a title routed before 3.0.0 must not create a duplicate page."""
+    cfg = wm.default_config()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "wiki/sources").mkdir(parents=True)
+        (root / "wiki/sources/Attention-Is-All-You-Need.md").write_text("x", encoding="utf-8")
+        with mock.patch.object(wm, "VAULT_ROOT", root):
+            assert_eq(
+                "existing slug source is reused",
+                "wiki/sources/Attention-Is-All-You-Need.md",
+                wm.route_path("generic", "source", "Attention Is All You Need", cfg),
+            )
+            assert_eq(
+                "new question keeps its title",
+                "wiki/questions/Attention Is All You Need.md",
+                wm.route_path("generic", "question", "Attention Is All You Need", cfg),
+            )
+            (root / "wiki/sources/Attention Is All You Need.md").write_text("y", encoding="utf-8")
+            assert_eq(
+                "title page wins once it exists",
+                "wiki/sources/Attention Is All You Need.md",
+                wm.route_path("generic", "source", "Attention Is All You Need", cfg),
+            )
+
+
 def test_route_path_blocks_traversal_for_generic_entity_and_concept():
     """The end-to-end route must not allow the returned path to escape vault root."""
     import os
@@ -852,6 +887,8 @@ def main():
     test_slugify_extended_unicode()
     test_routes_bound_portable_component_bytes()
     test_safe_name_strips_path_separators()
+    test_safe_name_strips_obsidian_link_syntax()
+    test_generic_source_and_question_reuse_legacy_slug_pages()
     test_route_path_blocks_traversal_for_generic_entity_and_concept()
     test_route_path_blocks_traversal_for_para_entity_and_concept()
     test_mode_folder_overrides_and_final_routes_are_confined_to_wiki()

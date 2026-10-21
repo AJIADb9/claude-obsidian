@@ -197,8 +197,11 @@ def safe_name(name):
     Strips path separators, null bytes, control characters, and leading dots or
     hyphens so the returned string cannot escape its parent directory or be
     interpreted as a hidden file or flag. Spaces and case are preserved.
+    Obsidian link syntax (``#``, ``^``, ``[``, ``]``) is also stripped, since a
+    filename holding it cannot be the target of a wikilink.
     """
-    cleaned = re.sub(r"[/\\\x00-\x1f\x7f<>:\"|?*\ud800-\udfff]+", "", name)
+    cleaned = re.sub(r"[/\\\x00-\x1f\x7f<>:\"|?*#^\[\]\ud800-\udfff]+", "", name)
+    cleaned = re.sub(r" {2,}", " ", cleaned)
     cleaned = cleaned.lstrip(".- ").rstrip(". ")
     return cleaned or "untitled"
 
@@ -249,6 +252,14 @@ def _markdown_filename(stem, prefix=""):
     return filename
 
 
+def _existing_page(relative):
+    """Return True when a regular file already exists at a vault path."""
+    try:
+        return (VAULT_ROOT / relative).is_file()
+    except (OSError, ValueError):
+        return False
+
+
 def mint_zettel_id():
     """Return a time-sortable UTC prefix plus an independent UUIDv4 nonce.
 
@@ -291,6 +302,13 @@ def route_path(mode, content_type, name, cfg):
             "research": g["concepts_folder"] + _markdown_filename(raw),
         }
         result = mapping[content_type]
+        if content_type in {"source", "question"}:
+            # Before 3.0.0 these routes were slugged. Keep filing to a page an
+            # earlier route created rather than suggesting a duplicate.
+            folder = g["sources_folder" if content_type == "source" else "questions_folder"]
+            legacy = folder + _markdown_filename(slug)
+            if legacy != result and _existing_page(legacy) and not _existing_page(result):
+                result = legacy
 
     elif mode == "lyt":
         notes = cfg["config"]["lyt"]["notes_folder"]
