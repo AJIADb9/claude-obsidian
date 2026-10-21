@@ -196,6 +196,14 @@ fall back to `claude -p` (see Removed). See the
   configured API or local Ollama provider, prefixes remain synthetic; a
   subscription CLI can no longer load unrelated tools or host context.
 
+### Thanks
+
+Pull requests from Ychris12138 (#194), Marcos64s (#199), hphsu (#195),
+vinsocci (#63) and miraclemanza (#46), and issue reports from RoelKluin (#200),
+threnard (#193), szrenwei (#191), ppuri2 (#168), cosmos75 (#141) and simonc
+(#25) shaped this release. [ATTRIBUTION.md](ATTRIBUTION.md) lists what each
+one contributed.
+
 ## [2.2.0] - 2026-09-10
 
 Backlog triage: lint scoping, lock recovery, host validation, the `bin/`
