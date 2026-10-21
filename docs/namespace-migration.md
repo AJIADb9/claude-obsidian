@@ -14,9 +14,9 @@ because another plugin uses that name. The owner-qualified name avoids that
 known collision. It is not a claim that a name is globally exclusive. See the
 [current manifest reference](https://code.claude.com/docs/en/plugins-reference#name).
 
-## Local candidate
+## Try it from a checkout
 
-Load the candidate without changing the installed plugin:
+Load a local checkout without changing the installed plugin:
 
 ```bash
 claude --plugin-dir /absolute/path/to/claude-obsidian
@@ -37,11 +37,18 @@ marketplace carries a top-level `renames` map from `claude-obsidian` to
 Claude Code then migrates users instead of reporting
 `Plugin "claude-obsidian" not found in marketplace`:
 
-1. After the user's copy of the marketplace updates, Claude Code rewrites the
+1. Update the user's copy of the marketplace:
+
+   ```bash
+   claude plugin marketplace update agricidaniel-claude-obsidian
+   ```
+
+   On the next `claude` start, Claude Code rewrites the
    `claude-obsidian@agricidaniel-claude-obsidian` key in `enabledPlugins` and
    `pluginConfigs` to the new name in the user, project and local scopes.
-2. Because this marketplace is a git repository, the renamed plugin is not yet
-   cached. Each user installs it once:
+   The old plugin is then uninstalled, and the renamed one is not installed
+   yet.
+2. Each user installs it once:
 
    ```bash
    claude plugin install agricidaniel-obsidian@agricidaniel-claude-obsidian
@@ -59,8 +66,9 @@ the current one.
 
 ### Verify
 
-Check that the expected version and source are installed and enabled, and that
-no entry reports an error:
+After the install in step 2, check that the expected version and source are
+installed and enabled, and that no entry reports an error. Run before the
+install, the listing can briefly still show the old name as enabled.
 
 ```bash
 claude plugin list --json
@@ -106,8 +114,22 @@ local git copy of the marketplace:
 - The rollback above, using a local path in place of the GitHub ref,
   reinstalled `claude-obsidian` from the pre-rename commit.
 
-The GitHub-hosted channel, project and local scopes, managed settings, Windows,
-and skill invocation inside a live session were not exercised. Check the target
+With Claude Code 2.1.304 on 2026-10-20, repeated with both a local directory
+and a git marketplace served over local smart HTTP:
+
+- `claude plugin validate --strict` rejected the `claude-obsidian` name as
+  reserved and passed the renamed tree.
+- `marketplace update` itself left settings unchanged. The next `claude` start
+  rewrote the enabled key and uninstalled the old plugin, `plugin list` then
+  reported no plugins, and one `claude plugin install` completed the
+  migration.
+- In a live session loaded with `--plugin-dir`, all 15 skills and 3 agents were
+  listed under `agricidaniel-obsidian:`.
+- The rollback, using the `v2.2.0` tag of the local git channel, reinstalled
+  `claude-obsidian` 2.2.0 with files identical to the tag.
+
+The GitHub-hosted channel, project and local scopes, managed settings and
+Windows were not exercised. Check the target
 host's help before use. Local source changes do not authorize installation,
 commits, publishing, or account changes. See the
 [installation and uninstall guide](install-guide.md).
