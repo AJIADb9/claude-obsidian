@@ -4,14 +4,14 @@
     {
       "mode": "0644",
       "path": ".claude-plugin/marketplace.json",
-      "sha256": "8afe407656999dd4f076bdbd844f7ba208828665d6a1654cfe3012486d02a69b",
-      "size": 914
+      "sha256": "4b9b3704e602c80ec760ddc4caa38837229ce72a81b1108422c21d96f39e8b67",
+      "size": 908
     },
     {
       "mode": "0644",
       "path": ".claude-plugin/plugin.json",
-      "sha256": "6ef307403c73b7084866c42e75d2cc5f9dcc9708eda7cbc5f2b19f6a13dfe709",
-      "size": 976
+      "sha256": "c268241e56729d8a7ab061d7c971bb391ec6d23254fb58637060d85bda756280",
+      "size": 970
     },
     {
       "mode": "0644",
@@ -88,8 +88,8 @@
     {
       "mode": "0644",
       "path": "AGENTS.md",
-      "sha256": "cc55dba7ac7bc039e6279fb2c5605c6a71da8512bfae047ccc4630826375e1a8",
-      "size": 4781
+      "sha256": "f12fe295445b942a38c82e07f486428f548df32f9ca9ca2302b58ace8c68cf99",
+      "size": 4775
     },
     {
       "mode": "0644",
@@ -100,13 +100,13 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "afff041e86cc19a9ec3d72455a5654f36468297cf2ceac6cf0e02f52ef305e11",
-      "size": 33883
+      "sha256": "7f37f7c0c0658bb14628e947a6dfc5c9eef38d88a35af2e6ad30e2e52de74e4d",
+      "size": 35266
     },
     {
       "mode": "0644",
       "path": "CITATION.cff",
-      "sha256": "e82d5a36626ab8876cfa4d398bfb4abeac5d00ccff121c1e89528f947ee26338",
+      "sha256": "890ca4e3c18e8ab14db98b559958381fa45398a8a559f203eb89882ff90e07b7",
       "size": 468
     },
     {
@@ -154,8 +154,8 @@
     {
       "mode": "0644",
       "path": "README.md",
-      "sha256": "c2ddecc6437e82a67a6f9357616ca012fb75e353a6ea978d3a4c0809be3d22c5",
-      "size": 20381
+      "sha256": "782546c34ff82c35971f19ec9137dd5b3a809a18cb8901d71f1579f6d85b8ad7",
+      "size": 20392
     },
     {
       "mode": "0644",
@@ -226,7 +226,7 @@
     {
       "mode": "0644",
       "path": "claude_obsidian/__init__.py",
-      "sha256": "ae68009783439596bf51ecf8ce3a06d1ec94998e5c336b285b78f3bca0e7c549",
+      "sha256": "8c0273ddd627c392734ba991a3a0c66b404d986acadc886dd4f87650dac94ce8",
       "size": 296
     },
     {
@@ -346,8 +346,8 @@
     {
       "mode": "0644",
       "path": "claude_obsidian/package_validation.py",
-      "sha256": "5280041e50ebda38068c93cf4abf2a87abeb4b82458ddc9d79679c6cb7cb866f",
-      "size": 25548
+      "sha256": "87a32ab1dd6fe9df7aa8facb37544322e229316b8702df7150f6b243ace2abf1",
+      "size": 25929
     },
     {
       "mode": "0644",
@@ -436,8 +436,8 @@
     {
       "mode": "0644",
       "path": "config/public-marketplace.json",
-      "sha256": "8afe407656999dd4f076bdbd844f7ba208828665d6a1654cfe3012486d02a69b",
-      "size": 914
+      "sha256": "4b9b3704e602c80ec760ddc4caa38837229ce72a81b1108422c21d96f39e8b67",
+      "size": 908
     },
     {
       "mode": "0644",
@@ -472,8 +472,8 @@
     {
       "mode": "0644",
       "path": "docs/install-guide.md",
-      "sha256": "01a86e997b705ae7f7574ca56e5f5021814560ae6b759252d219439e134f7dc2",
-      "size": 11396
+      "sha256": "5165f52408bf093eac7658487733fbee8ceac2251e4609f35b377c3077caa653",
+      "size": 11408
     },
     {
       "mode": "0644",
@@ -484,8 +484,8 @@
     {
       "mode": "0644",
       "path": "docs/namespace-migration.md",
-      "sha256": "20336bed04b78f1cb3200b4747dd98ac7e1f8fe3df2cefbeb7e9aa88b6936efb",
-      "size": 6076
+      "sha256": "819ffd09aa3eeb62b2114636e1a17cd117820d6800d2b09f683b4841d05dabce",
+      "size": 5641
     },
     {
       "mode": "0644",
@@ -904,8 +904,8 @@
     {
       "mode": "0644",
       "path": "skills/wiki/references/install-modes.md",
-      "sha256": "26cf1f21a744c498fdef516901701b9f4abecdbccab3b533ad197f3786e1098f",
-      "size": 1932
+      "sha256": "e144fd3d74f7ad6495f5b9d5c29e225e9ccf8572d91f4af40d913a278433c5b0",
+      "size": 1926
     },
     {
       "mode": "0644",
@@ -1408,8 +1408,8 @@
     {
       "mode": "0644",
       "path": "tests/test_package_validation.py",
-      "sha256": "3a72f9c7371ad4267ed132b524a7977da06384144032f5e954ccd47221f9a4e3",
-      "size": 21052
+      "sha256": "1cdb6ad6de8738580dc99fe3f5331bb57631f930f0689efb40f230aa72e1be3b",
+      "size": 21331
     },
     {
       "mode": "0644",
@@ -1541,6 +1541,6 @@
     }
   },
   "schema_version": 1,
-  "source_commit": "3f2913ecf754941909020cd9035c346d8d1381ba",
-  "source_date_epoch": 1792602389
+  "source_commit": "76afc1efd0be244f3dfde35941b781e960874bb9",
+  "source_date_epoch": 1792605104
 }

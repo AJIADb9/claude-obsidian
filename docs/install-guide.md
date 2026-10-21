@@ -24,12 +24,11 @@ Add the public catalog and install the namespaced plugin:
 
 ```bash
 claude plugin marketplace add AgriciDaniel/claude-obsidian
-claude plugin install agricidaniel-obsidian@agricidaniel-claude-obsidian
+claude plugin install claude-obsidian@agricidaniel-claude-obsidian
 claude plugin list
 ```
 
-Upgrading from 2.x, where the plugin was named `claude-obsidian`? See
-[Upgrade and rollback](#upgrade-and-rollback).
+Upgrading from 2.x or 3.0.0? See [Upgrade and rollback](#upgrade-and-rollback).
 
 A private development tree that holds contributor-vault state has no
 `.claude-plugin/marketplace.json`; it can contain contributor-vault state and
@@ -38,8 +37,8 @@ that manifest only into its audited output. The public default branch must be
 promoted from the extracted audited artifact before these marketplace commands
 are advertised for a new version.
 
-Invoke skills as `/agricidaniel-obsidian:wiki`,
-`/agricidaniel-obsidian:wiki-ingest`, and `/agricidaniel-obsidian:save`.
+Invoke skills as `/claude-obsidian:wiki`,
+`/claude-obsidian:wiki-ingest`, and `/claude-obsidian:save`.
 
 The plugin cache contains read-only product assets. Run Claude from the user
 vault, set `CLAUDE_OBSIDIAN_VAULT`, or pass `--vault` to portable commands.
@@ -231,21 +230,25 @@ metadata unless a separately configured adapter is explicitly approved.
 
 ## Upgrade and rollback
 
-Version 3.0.0 renames the Claude plugin from `claude-obsidian` to
-`agricidaniel-obsidian`. Existing installations migrate through the
-marketplace `renames` map, then need one install:
+The Claude plugin is `claude-obsidian`, and its commands are
+`/claude-obsidian:*`. From 2.x, update it as usual:
 
 ```bash
 claude plugin marketplace update agricidaniel-claude-obsidian
-claude plugin install agricidaniel-obsidian@agricidaniel-claude-obsidian
+claude plugin update claude-obsidian@agricidaniel-claude-obsidian
 ```
 
-Restart Claude Code and use `/agricidaniel-obsidian:*` commands. Until the
-install runs, the plugin is not installed at all. Managed settings need an
-administrator change. See the
-[namespace migration](namespace-migration.md#published-upgrade) for
-verification and rollback. The uninstall commands below apply to the new
-identity only.
+Version 3.0.0 alone was named `agricidaniel-obsidian`. If you installed it,
+the marketplace `renames` map moves you back, then you install once:
+
+```bash
+claude plugin marketplace update agricidaniel-claude-obsidian
+claude plugin install claude-obsidian@agricidaniel-claude-obsidian
+```
+
+Restart Claude Code after either path. Managed settings that name
+`agricidaniel-obsidian` need an administrator change. See the
+[namespace migration](namespace-migration.md) for verification and rollback.
 
 Upgrade product code independently from the user vault. Before a migration or
 large ingest, make a normal backup or snapshot. Knowledge writes are journaled;
@@ -275,7 +278,7 @@ from its vault-local pending record.
 Remove the host integration, not the vault:
 
 ```bash
-claude plugin uninstall agricidaniel-obsidian@agricidaniel-claude-obsidian
+claude plugin uninstall claude-obsidian@agricidaniel-claude-obsidian
 claude plugin marketplace remove agricidaniel-claude-obsidian
 ```
 
