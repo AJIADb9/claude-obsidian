@@ -53,21 +53,23 @@ Capture maturity is adapter-dependent:
   ingesting the resulting create-only `.raw/captured/` path. Do not build a
   canonical claim whose only locator is an outside-vault path.
 - URL capture requires an available network/fetch adapter and explicit consent.
-- PDFs, Word, PowerPoint, Excel, EPUB, HTML files, images, audio and video are
-  read through the `anymd` adapter (local Rust binary, no API key; npm only,
-  `uvx anymd` does not exist):
+- PDFs, Word, PowerPoint, Excel, EPUB, HTML files, images and email are read
+  through the Docling adapter: `~/.claude/bin/doc2md.py`, run on the GPU under
+  the CUDA-enabled `docling` uv tool's interpreter (local, no cloud, built-in
+  OCR). Never `uvx docling`; that copy is CPU-only.
 
-  ```bash
-  npx -y @sylphx/anymd "$FILE" > "$SCRATCH/$NAME.md"   # add --pages 1-5 for a range
+  ```powershell
+  $d2m = "$(uv tool dir)\docling\Scripts\python.exe"
+  & $d2m ~\.claude\bin\doc2md.py $FILE > "$SCRATCH\$NAME.md"   # add --pages 1-5 for a range
+  & $d2m ~\.claude\bin\doc2md.py $F1 $F2 -o $SCRATCH            # batch: one model load
   ```
 
-  Its output carries `<!-- page N -->` anchors; cite them as the locator range
-  in source and claim records. OCR needs `tesseract` on PATH and transcripts
-  need `ffmpeg` plus whisper.cpp; `npx -y @sylphx/anymd doctor` lists what is
-  present. An image-only PDF or a media file without those tools returns
-  metadata only. If the adapter or `npx` is unavailable, or the output is
-  empty, preserve the locator and report the unsupported extraction; do not
-  pretend the media was read.
+  Paginated inputs (PDF, images, pptx) carry `<!-- page N -->` anchors; cite
+  them as the locator range in source and claim records. docx, EPUB and HTML
+  have no pages; cite headings instead. Audio and video are not converted. If
+  the adapter is unavailable, the output is empty, or it warns
+  `no text extracted`, preserve the locator and report the unsupported
+  extraction; do not pretend the media was read.
 - Store extracted text or metadata only when actually produced. Do not claim a
   binary was copied when the transaction contains only text.
 
