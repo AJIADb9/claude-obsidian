@@ -34,20 +34,20 @@
     {
       "mode": "0644",
       "path": ".github/ISSUE_TEMPLATE/bug_report.md",
-      "sha256": "684f9b248960b51bed7089c02ab30d9be9a25caa70f2c4f3efbc9f6489602d39",
-      "size": 1269
+      "sha256": "6d9d83ba27e68a65068dab2d37c41fb692939c190e676c28c22ec818cf2b6977",
+      "size": 1279
     },
     {
       "mode": "0644",
       "path": ".github/ISSUE_TEMPLATE/feature_request.md",
-      "sha256": "ef251dd645db15495847d7ac7bd9e6f41fa27636ae6ad943f3f329baff6219b2",
-      "size": 1205
+      "sha256": "64759cbc1256f0da9d6d5b0594101f534de0c9617ce53edd133f57a9df92e232",
+      "size": 1211
     },
     {
       "mode": "0644",
       "path": ".github/copilot-instructions.md",
-      "sha256": "35abbef26c548e01f75bf3fc3f5a2f6e2beba595968e5a63491d4947afaca948",
-      "size": 898
+      "sha256": "7274947f2d0d7329cc88cabeb892e9fa37ca401e12c1915704b9823be4476a39",
+      "size": 897
     },
     {
       "mode": "0644",
@@ -58,8 +58,8 @@
     {
       "mode": "0644",
       "path": ".github/pull_request_template.md",
-      "sha256": "d8ecdfe054b7974e335ad7f928d34c2b60a3a7e9a95e037219ebaa9038cd2c2d",
-      "size": 1702
+      "sha256": "a45adbd818b3a21c160e12ac6890f845260dd6919d0c97ba9b1d3b4fb6e42120",
+      "size": 1696
     },
     {
       "mode": "0644",
@@ -94,8 +94,8 @@
     {
       "mode": "0644",
       "path": "ATTRIBUTION.md",
-      "sha256": "b4f821288b8ac3227412b1780b69e2b42b36dd5d9c64ad02a9638ab2b2ed32d9",
-      "size": 5167
+      "sha256": "b0e5c15c35ab683e641a0f97713c7ded6174461e3dec99748f5fc6a0bbc9e8f9",
+      "size": 6812
     },
     {
       "mode": "0644",
@@ -154,8 +154,8 @@
     {
       "mode": "0644",
       "path": "README.md",
-      "sha256": "782546c34ff82c35971f19ec9137dd5b3a809a18cb8901d71f1579f6d85b8ad7",
-      "size": 20392
+      "sha256": "5cba4e118ccb0bac7ee62df7e8979117982a7b765e20597e9c36de696740d294",
+      "size": 22046
     },
     {
       "mode": "0644",
@@ -178,8 +178,8 @@
     {
       "mode": "0644",
       "path": "agents/verifier.md",
-      "sha256": "90976a00b4ba4fb078d1c857ffa78d4f17452459e73d155351780f14756c1b5a",
-      "size": 4978
+      "sha256": "aec5a2addd3d8b4e55ab292caeaa078e23de0287a16e310f9f7a326ca947fdb1",
+      "size": 4975
     },
     {
       "mode": "0644",
@@ -190,8 +190,8 @@
     {
       "mode": "0644",
       "path": "agents/wiki-lint.md",
-      "sha256": "7abb46a3ed549cc83a70a8d2d4096a4ceed58f7617a81441c786be6734df233f",
-      "size": 3120
+      "sha256": "96025352494becbe5e21dcda0e7fc20a29e5b6adbf82ce5f5ae46b3c12227a74",
+      "size": 3117
     },
     {
       "mode": "0644",
@@ -210,6 +210,66 @@
       "path": "assets/diagrams/product-vault-boundary.svg",
       "sha256": "8b7a65d6a9cb2e438d77091ac1835f71935467537af208061f552260eb714d91",
       "size": 9378
+    },
+    {
+      "mode": "0644",
+      "path": "assets/readme/btn-hub.svg",
+      "sha256": "707131773a25dd92e3be49d1422b9fb5d2f6fef574d13bf27bf1c77618690cf6",
+      "size": 2999
+    },
+    {
+      "mode": "0644",
+      "path": "assets/readme/btn-pro.svg",
+      "sha256": "99c7443ee36286cc1608dadbff0f23fc84ded2605a140769960838ae15844c22",
+      "size": 2691
+    },
+    {
+      "mode": "0644",
+      "path": "assets/readme/btn-youtube.svg",
+      "sha256": "7165a437271af2f2e0be290aefd1da46d91641ae331f6f31f1216cb1a36a46a8",
+      "size": 2599
+    },
+    {
+      "mode": "0644",
+      "path": "assets/readme/credits.svg",
+      "sha256": "129761b0995b2fa12aad029d0ba8e7125dbd82223159c15bbb812c38dc4921e3",
+      "size": 313772
+    },
+    {
+      "mode": "0644",
+      "path": "assets/readme/crew.svg",
+      "sha256": "e6887011d904bc0fb66af4078b5faa6f0db79f83fe3be040b11ca9ea41f4262b",
+      "size": 350371
+    },
+    {
+      "mode": "0644",
+      "path": "assets/readme/hero.svg",
+      "sha256": "e9d7b93b9047c3151df7f3eb09b5a70ca7ceabfd7cfd67caee2c572c674c6db9",
+      "size": 639545
+    },
+    {
+      "mode": "0644",
+      "path": "assets/readme/install.svg",
+      "sha256": "8dea8484ce5aad84f1474a102e51af1467e15a70f17dcb9642767dd583e3ff1d",
+      "size": 305595
+    },
+    {
+      "mode": "0644",
+      "path": "assets/readme/modes.svg",
+      "sha256": "728d0e16d5f3e965a73a1895f00823e4a264391fb52ef629b5fee6d0f0646e40",
+      "size": 209720
+    },
+    {
+      "mode": "0644",
+      "path": "assets/readme/safety.svg",
+      "sha256": "c0d604edc248641f0030982dc99864a17e70bd4a7c7a4bbfbd9632622691ff4b",
+      "size": 222479
+    },
+    {
+      "mode": "0644",
+      "path": "assets/readme/skills.svg",
+      "sha256": "72b1513e6d6c833a4005bdd1e0456de8d9c3ddd7498697fcc134a22ed1b7c71e",
+      "size": 327405
     },
     {
       "mode": "0644",
@@ -460,14 +520,14 @@
     {
       "mode": "0644",
       "path": "docs/compound-vault-guide.md",
-      "sha256": "980b7df27d5c49931a9b84528b16045910698f4d8b21abe91a27c66798372688",
+      "sha256": "e190605f93bff278c4f450875ae4d71281f0260a202fe1637b3b0021154b13b4",
       "size": 9799
     },
     {
       "mode": "0644",
       "path": "docs/dragonscale-guide.md",
-      "sha256": "6a39f136143ede03f14a0a483f39981fc651ef7fbce1cb758acf089633f6e088",
-      "size": 4433
+      "sha256": "bad89c5fa9fadb6e1492b437a68bacee72b2049a3c8de3a857d0a7dc3489e109",
+      "size": 4430
     },
     {
       "mode": "0644",
@@ -520,8 +580,8 @@
     {
       "mode": "0644",
       "path": "docs/windows-wsl.md",
-      "sha256": "8be22db12f77d84479eb55e830bdf8cfd70cfdeb3c88b54027d227c063684a24",
-      "size": 5923
+      "sha256": "7f2bd871e43ae35976ea4f03fd9fef0bb8e95896c68d2e2d7a2247fa38945a70",
+      "size": 5908
     },
     {
       "mode": "0644",
@@ -586,8 +646,8 @@
     {
       "mode": "0644",
       "path": "examples/sample-vault/wiki/log.md",
-      "sha256": "d8615027ba0a974a2bfc61f851c18c24e8f079c034e4abbc8cb466c13c305259",
-      "size": 227
+      "sha256": "b78dedc82a1a37067e8502eb52984b43d8b98c31f2cb3409b83841c3554dad6a",
+      "size": 221
     },
     {
       "mode": "0644",
@@ -748,8 +808,8 @@
     {
       "mode": "0644",
       "path": "skills/canvas/references/canvas-spec.md",
-      "sha256": "de66f7d6473e5d4fecee221f5d52c06e7bf63e6130fe57c6c2446f79ddfbe1d1",
-      "size": 9002
+      "sha256": "a686534f3ad44983e29762d3d889ed3b86a00e7b2d4057689f11ff829805bfd5",
+      "size": 9007
     },
     {
       "mode": "0644",
@@ -1541,6 +1601,6 @@
     }
   },
   "schema_version": 1,
-  "source_commit": "76afc1efd0be244f3dfde35941b781e960874bb9",
-  "source_date_epoch": 1792605104
+  "source_commit": "951603ced2679172bc4aa545c95ad7ef263a56a3",
+  "source_date_epoch": 1792684370
 }

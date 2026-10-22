@@ -8,7 +8,7 @@ claude-obsidian is an original work. The following third-party patterns, tools, 
 
 **Author:** Andrej Karpathy
 **Source:** https://github.com/karpathy
-**Use:** The core architecture of claude-obsidian — using an LLM to build and maintain a structured wiki from raw sources — is based on the LLM Wiki pattern Karpathy described publicly. claude-obsidian is an independent implementation; no code or content from Karpathy's repositories was copied.
+**Use:** The core architecture of claude-obsidian (using an LLM to build and maintain a structured wiki from raw sources) is based on the LLM Wiki pattern Karpathy described publicly. claude-obsidian is an independent implementation; no code or content from Karpathy's repositories was copied.
 
 ---
 
@@ -70,6 +70,26 @@ revision.
 | Haiku 5.5 model and cache-floor migration, revised here with explicit thinking and output limits | hphsu | https://github.com/AgriciDaniel/claude-obsidian/pull/195 |
 | Optional local Ollama prefix tier, independently reimplemented here with bounded transport and local-model preflight | vinsocci | https://github.com/AgriciDaniel/claude-obsidian/pull/63 |
 | Dataview queries use vault-relative content paths | miraclemanza | https://github.com/AgriciDaniel/claude-obsidian/pull/46 |
+
+These community pull requests were merged as submitted.
+
+| Change | Contributor | Pull request |
+|--------|-------------|--------------|
+| ZCode host adapter for portable skill discovery | Lion-1209 | https://github.com/AgriciDaniel/claude-obsidian/pull/146 |
+| One page-type vocabulary, so the router files every documented type | HectorBernstorff | https://github.com/AgriciDaniel/claude-obsidian/pull/149 |
+| Lint ignores gitignored candidates when resolving ambiguous wikilinks | Packetslave | https://github.com/AgriciDaniel/claude-obsidian/pull/159 |
+| Ingest prefers Markdown links for citable URLs | CooperSheroy | https://github.com/AgriciDaniel/claude-obsidian/pull/176 |
+| UTF-8 test output so Windows test runs do not crash | yotamleo | https://github.com/AgriciDaniel/claude-obsidian/pull/178 |
+| Contextual prefixes parse CRLF frontmatter | ketpatil77 | https://github.com/AgriciDaniel/claude-obsidian/pull/180 |
+| Scaffolded vaults pinned to the absolute wikilink format | tilusnet | https://github.com/AgriciDaniel/claude-obsidian/pull/182 |
+
+Version 2.2.0 also draws on these pull requests, implemented here independently.
+
+| Change | Contributor | Pull request |
+|--------|-------------|--------------|
+| The repository root ignores `.mcp.json`, a possible credential carrier | GPezzuti | https://github.com/AgriciDaniel/claude-obsidian/pull/44 |
+| `stop_status` reads large valid journals instead of reporting them unreadable | STiFLeR7 | https://github.com/AgriciDaniel/claude-obsidian/pull/172 |
+| `checkpoint` honors Git's false values for `core.filemode` | STiFLeR7 | https://github.com/AgriciDaniel/claude-obsidian/pull/173 |
 
 These issue reports, several with a diagnosis or a tested patch, led to fixes
 in 3.0.0.
