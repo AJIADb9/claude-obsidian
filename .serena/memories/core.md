@@ -1,7 +1,7 @@
 # claude-obsidian - core
 
 Product source for a local-first Agent Skills package plus a Claude Code plugin
-adapter. v2.2.0. This checkout is the AJIADb9 fork on branch `a/main`, rebased
+adapter. v3.0.1. This checkout is the AJIADb9 fork on branch `a/main`, rebased
 onto upstream AgriciDaniel/claude-obsidian; fork-only files and the rules for
 keeping them rebasable are in `mem:fork_local`.
 
@@ -38,8 +38,12 @@ any conflict. Root `CLAUDE.md` is host-only and absent from this checkout.
 ## Single core entry point
 
 `scripts/claude-obsidian.py` (a 17-line shim over `claude_obsidian.cli:main`).
-Subcommands: `doctor init adopt transaction checkpoint capture lint mode migrate
-extension contracts package release hook`.
+Subcommands: `doctor init adopt transaction workflow capacity bench checkpoint
+capture lint mode migrate extension contracts package release hook`.
+
+Save and Ingest apply through `workflow inspect/apply`, not bare `transaction`:
+it adds completeness checks (declared catalog link, log entry, bounded hot
+cache, ledger change for ingest) on top of storage validity.
 
 ## Mutation protocol
 

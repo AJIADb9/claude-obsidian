@@ -13,13 +13,14 @@
   convention here.
 - No ruff/mypy config exists. A bare `ruff check` reports ~209 pre-existing
   findings on upstream code; it is not a gate. Do not add a config or mass-fix.
-- CI is `.github/workflows/test.yml`, three jobs:
+- CI is `.github/workflows/test.yml` on every push and PR, three jobs (plus
+  `codeql.yml` and Dependabot for SHA-pinned Actions):
   - `test`: `make test` on ubuntu and macos across the 4 Python versions, then
     proves the suite mutated nothing (`git diff --exit-code` plus a clean
     `git status --porcelain -uall`).
   - `windows-smoke`: sets `core.autocrlf false` before checkout, then runs an
     explicit allowlist (`test_package_validation.py`, `test_knowledge_contracts.py`,
-    `test_contracts.py`, `test_benchmark_tools.py`, `test_windows_compat.py`) plus
+    `test_contracts.py`, `test_ollama.py`, `test_windows_compat.py`) plus
     `package validate` and `contracts --check-only`. The full suite is
     deliberately unsupported on native Windows (dirfd confinement, symlinks,
     fcntl, bash).

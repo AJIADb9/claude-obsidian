@@ -22,6 +22,11 @@ expect to replay it on the next upstream release.
   mounted-drive vault needs DrvFs metadata or applies fail with `RESULT_DRIFT`.
 - `pyproject.toml` + `uv.lock` - uv/hatchling packaging; upstream ships neither.
   Bump its version by hand to match `.claude-plugin/plugin.json`.
+- Hot-cache budget: 2048 estimated tokens instead of upstream's 500 words.
+  `estimate_tokens` and `HOT_CACHE_TOKEN_BUDGET` live in `claude_obsidian/limits.py`;
+  lint reports `oversized_hot_cache` (non-blocking) and `workflow.py` refuses
+  `HOT_CONTEXT_TOO_LARGE` from the same estimate. Upstream's 32 KiB byte bound
+  stays. Save, Ingest and `docs/workflow-acceptance.md` state the token budget.
 - `.serena/` (this config and these memories), `assets/diagrams/*.svg`,
   `assets/social-preview.png`, `docs/audits/*`, `docs/releases/v1.6.0.md` -
   fork-restored material. The audit and release docs are dated v1.6 to v1.9
@@ -33,6 +38,10 @@ expect to replay it on the next upstream release.
   a whole-file conflict. Resolve by taking the upstream side, then re-applying
   only the fork hunks (the `youtube` object and the `wiki-fold`
   implementation/network/verifier fields) in LF.
+- Upstream tests that pin the 500-word hot limit (`tests/test_workflow.py`)
+  must be moved past 2048 tokens; new ones may appear in any release.
+- Serena regenerates `.serena/project.yml` with CRLF on Windows. Convert to LF
+  before committing.
 - Upstream renames land here too. v2.2.0 moved `bin/` to `scripts/`, which meant
   `bin/co.sh` became `scripts/co.sh` plus reference updates in the youtube skill,
   the wrapper test, and `docs/windows-wsl-fork.md`.

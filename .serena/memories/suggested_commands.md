@@ -20,7 +20,7 @@ The full suite needs a real POSIX filesystem. Run it in WSL on ext4, not over
 
 Windows portable surface (mirrors the CI allowlist, safe natively):
 `uv run --no-project python tests/test_package_validation.py` and likewise
-`test_knowledge_contracts.py`, `test_contracts.py`, `test_benchmark_tools.py`,
+`test_knowledge_contracts.py`, `test_contracts.py`, `test_ollama.py`,
 `test_windows_compat.py`, then `scripts/claude-obsidian.py package validate`
 and `scripts/claude-obsidian.py contracts --check-only`.
 
