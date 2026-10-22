@@ -1,7 +1,7 @@
 # Compound Vault architecture
 
 The Compound Vault is claude-obsidian's operational model for a local,
-source-cited knowledge base. The v1.10 foundation replaces historical
+source-cited knowledge base. The 2.0.0 foundation replaces historical
 per-file-lock and lifecycle-write behavior with explicit vault selection and
 recoverable operation transactions.
 
