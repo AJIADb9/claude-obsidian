@@ -41,7 +41,6 @@ import bisect
 import fnmatch
 import html
 import json
-import math
 import os
 import posixpath
 import re
@@ -60,7 +59,11 @@ if __package__ in {None, ""}:
 from claude_obsidian.gitignore import GitignoreMatcher
 from claude_obsidian.json_utils import strict_json_loads
 from claude_obsidian.visible_paths import is_visible_path
-from claude_obsidian.limits import MAX_CANONICAL_LEDGER_BYTES
+from claude_obsidian.limits import (
+    HOT_CACHE_TOKEN_BUDGET as _HOT_CACHE_TOKEN_BUDGET,
+    MAX_CANONICAL_LEDGER_BYTES,
+    estimate_tokens,
+)
 from claude_obsidian.markdown_links import (
     HTML_COMPLETE_TAG_RE as _HTML_COMPLETE_TAG_RE, html_block_start as _html_block_start,
     iter_markdown_links, iter_wikilinks,
@@ -95,44 +98,9 @@ _ORPHAN_EXCLUDED_NAMES = {
     "wiki map.md",
     "getting-started.md",
 }
-# The hot cache is read in full at the start of every session, so its budget is
-# a reading-cost cap denominated in tokens (see skills/save/SKILL.md). Claude's
-# tokenizer is not published as a library, and lint must stay deterministic,
-# offline and dependency-free, so this is a calibrated estimate rather than a
-# true count. It is deliberately not a blocking category.
+# Lint reports an over-budget hot cache without blocking; the workflow gate
+# refuses one. Both use the shared estimate in claude_obsidian/limits.py.
 _HOT_CACHE_NAME = "hot.md"
-_HOT_CACHE_TOKEN_BUDGET = 2048
-# Chars per token for plain ASCII prose; the usual English BPE ratio.
-_TOK_ASCII_CHARS = 4.0
-# Accented Latin, Cyrillic and similar BMP letters split far worse than ASCII.
-_TOK_LATIN_EXT_CHARS = 1.5
-# Emoji, arrows and other symbols above U+2000, often with variation selectors.
-_TOK_SYMBOL_TOKENS = 2.0
-
-
-def estimate_tokens(text: str) -> int:
-    """Estimate token count without a tokenizer.
-
-    Accurate to roughly +/-15% on wiki prose, which is enough for a soft cap:
-    the number only has to distinguish "near budget" from "wildly over". On a
-    840-word hot cache this returns ~1365 against a naive chars/4 of ~1284.
-    """
-    ascii_chars = 0
-    latin_ext_chars = 0
-    symbol_chars = 0
-    for char in text:
-        code = ord(char)
-        if code < 128:
-            ascii_chars += 1
-        elif code <= 0x2000:
-            latin_ext_chars += 1
-        else:
-            symbol_chars += 1
-    return math.ceil(
-        ascii_chars / _TOK_ASCII_CHARS
-        + latin_ext_chars / _TOK_LATIN_EXT_CHARS
-        + symbol_chars * _TOK_SYMBOL_TOKENS
-    )
 
 
 _ALLOWLIST_JSON_NAMES = ("lint-allowlist.json", "wiki-lint.json", "lint.json")

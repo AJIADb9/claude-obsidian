@@ -16,7 +16,7 @@ Set `APPROVAL_SHA256` only from the reviewed inspect result. Generic
 operations; it does not substitute for this workflow acceptance check.
 
 Save and Ingest content operations couple the note/page writes, a hash-bound active
-catalog write, a log entry, and hot context of at most 500 words and 32 KiB (the
+catalog write, a log entry, and hot context of at most an estimated 2048 tokens and 32 KiB (the
 SessionStart context bound). The default catalog is `wiki/index.md`. To declare
 another active methodology MOC, place its exact vault-relative path in the bundle:
 

@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterator, Mapping
 from .hook_adapter import MAX_CONTEXT_BYTES
 from .json_utils import strict_json_loads
+from .limits import HOT_CACHE_TOKEN_BUDGET, estimate_tokens
 from .lint_engine import _parse_frontmatter, _yaml_scalar
 from .markdown_links import iter_markdown_links, mask_protected_regions
 from .visible_paths import is_canonical_visible_wiki_markdown
@@ -298,8 +299,8 @@ def inspect_workflow(vault: Path | str, bundle_or_path: Mapping[str, Any] | Path
         hot = writes.get('wiki/hot.md', {}).get('content', '')
         if not _body(hot).strip():
             fail('EMPTY_HOT_CONTEXT', 'wiki/hot.md', 'hot context must contain the reviewed recent context')
-        if len(_body(hot).split()) > 500:
-            fail('HOT_CONTEXT_TOO_LARGE', 'wiki/hot.md', 'hot context exceeds 500 words')
+        if estimate_tokens(hot) > HOT_CACHE_TOKEN_BUDGET:
+            fail('HOT_CONTEXT_TOO_LARGE', 'wiki/hot.md', f'hot context exceeds an estimated {HOT_CACHE_TOKEN_BUDGET} tokens')
         elif len(hot.encode('utf-8')) > MAX_CONTEXT_BYTES:
             fail('HOT_CONTEXT_TOO_LARGE', 'wiki/hot.md', f'hot context exceeds the {MAX_CONTEXT_BYTES}-byte session context bound')
         log = writes.get('wiki/log.md', {}).get('content', '')

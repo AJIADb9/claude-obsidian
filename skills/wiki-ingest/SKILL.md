@@ -164,7 +164,7 @@ the same bundle must be linked from an active catalog write that is also
 declared in `workflow.catalogs`: list `wiki/index.md` beside the new MOC, or
 link it from an existing declared MOC. An undeclared index write does not
 count. Log and hot-cache writes remain required; keep the hot cache at most
-500 words and 32 KiB. See the
+an estimated 2048 tokens and 32 KiB. See the
 [workflow acceptance guide](../../docs/workflow-acceptance.md).
 
 Show the user the inputs, budget consumed, create/replace paths, raw captures,

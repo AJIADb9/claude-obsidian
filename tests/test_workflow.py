@@ -288,7 +288,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(inspect_workflow(self.vault, bundle)['workflow_complete'])
         bundle['writes'][2]['content'] += '\n' + old
         self.assertTrue(inspect_workflow(self.vault, bundle)['workflow_complete'])
-        bundle['writes'][3]['content'] = 'word ' * 501
+        bundle['writes'][3]['content'] = 'word ' * 2000
         self.assertFalse(inspect_workflow(self.vault, bundle)['workflow_complete'])
 
     def test_catalog_policy_is_confined_and_hash_bound(self):
@@ -800,6 +800,17 @@ class WorkflowTests(unittest.TestCase):
         from claude_obsidian.hook_adapter import MAX_CONTEXT_BYTES
         bundle = self.bundle()
         bundle['writes'][3]['content'] = '# Recent\n\n' + 'x' * MAX_CONTEXT_BYTES + '\n'
+        codes = {x['code'] for x in inspect_workflow(self.vault, bundle)['workflow_findings']}
+        self.assertEqual({'HOT_CONTEXT_TOO_LARGE'}, codes)
+
+    def test_hot_context_budget_is_estimated_tokens_not_words(self):
+        bundle = self.bundle()
+        # About 1000 tokens over 800 words: within budget although over 500 words.
+        bundle['writes'][3]['content'] = '# Recent\n\n' + 'note ' * 800 + '\n'
+        codes = {x['code'] for x in inspect_workflow(self.vault, bundle)['workflow_findings']}
+        self.assertNotIn('HOT_CONTEXT_TOO_LARGE', codes)
+        # About 2500 tokens over 2000 words: over budget.
+        bundle['writes'][3]['content'] = '# Recent\n\n' + 'note ' * 2000 + '\n'
         codes = {x['code'] for x in inspect_workflow(self.vault, bundle)['workflow_findings']}
         self.assertEqual({'HOT_CONTEXT_TOO_LARGE'}, codes)
 
