@@ -838,8 +838,8 @@
     {
       "mode": "0644",
       "path": "skills/think/SKILL.md",
-      "sha256": "3a50f23f31b6aca41fae5d76017dace73191bbdde0cfb4c9515d069a9005644a",
-      "size": 4666
+      "sha256": "6b418bd96e88ca7b3dbede6cbadfa738e818c04886067844fe9cb979a55b4c10",
+      "size": 4654
     },
     {
       "mode": "0644",
@@ -1601,6 +1601,6 @@
     }
   },
   "schema_version": 1,
-  "source_commit": "951603ced2679172bc4aa545c95ad7ef263a56a3",
-  "source_date_epoch": 1792684370
+  "source_commit": "41ca7fd567f99e9778c6f98dd027fd230c2db7a3",
+  "source_date_epoch": 1792685479
 }
