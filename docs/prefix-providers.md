@@ -170,6 +170,22 @@ same fallback model. Without the flag the CLI is never executed.
 Inside WSL the Windows `claude.exe` is found through interop when no Linux
 `claude` is installed. Calls count against the user's Claude plan.
 
+### Rebuilding every prefix in parallel
+
+One CLI call per chunk makes a full rebuild serial: about 3 s a chunk, near
+three hours for 3,000 chunks. `scripts/prefix-parallel.py --vault PATH
+--allow-egress` runs `--claude-cli` in parallel shards instead (20 by default,
+`--shards N`). Each shard works on its own copy of the vault in a work
+directory, so the workers never wait on each other's writer lock. Pages with a
+chunk the CLI did not write are retried once with `--rebuild`, the shards'
+chunk files are merged, and only then is the real vault touched: under one
+writer lock the script re-prefixes any page edited during the run, builds
+BM25, and swaps `.vault-meta/chunks` and `.vault-meta/bm25` in. The previous
+store is kept as `<name>.prev-<stamp>`, or moved to `--backup-dir DIR/<date>/`.
+`--no-install` stops after the merge and `--install-only WORKDIR` installs it
+later. Keep `--work-dir` on a local Linux filesystem; a synced or 9P drive
+makes every per-page run slow. A 998-page vault took 33 minutes with 10 shards.
+
 ## Fork: keeping pages out of retrieval
 
 `.vault-meta/retrieval.json` may hold `{"exclude": ["glob", ...]}`. Patterns

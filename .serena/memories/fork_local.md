@@ -39,6 +39,9 @@ expect to replay it on the next upstream release.
   fold's children verbatim into `wiki/meta/log-archive/Log Archive YYYY-MM.md`),
   and `transaction.py` letting a `fold` also write those month pages
   (`_LOG_ARCHIVE_PAGE_RE`). Documented in `skills/wiki-fold/SKILL.md`.
+- `scripts/prefix-parallel.py` + `tests/test_prefix_parallel.py`: parallel shard
+  rebuild of all prefixes (`--claude-cli`, 20 shards by default), installed into
+  the vault under one MutationLock. Documented in `docs/prefix-providers.md`.
 - Retrieval exclusions: `.vault-meta/retrieval.json` `{"exclude": [globs]}` read by
   `contextual-prefix.py`; separate from lint's `exclude`.
 - Log format owner `claude_obsidian/logfmt.py` (strict write, lenient read of the
