@@ -64,6 +64,12 @@ otherwise inspection reports `LOG_HISTORY_NOT_PRESERVED`. The date must be a
 real calendar date, not only a matching digit pattern. Do not manufacture claims
 or source records to satisfy a validator.
 
+Fork: a dated-bullets log (`## YYYY-MM-DD` headings with `- **op** | title`
+bullets, see [vault-conventions.md](vault-conventions.md)) is accepted too. Its
+newest bullet must name the operation, and the log must equal the previous one
+with exactly that entry added, which is what `claude-obsidian.py log-entry`
+produces.
+
 Workflow inspection materializes hash-bound UTF-8 `content_file` drafts. After
 a successful apply, replay can use the committed target bytes when a disposable
 draft no longer exists. For managed address assignment, it can reverse only

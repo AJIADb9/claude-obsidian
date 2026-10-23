@@ -41,6 +41,17 @@ expect to replay it on the next upstream release.
   (`_LOG_ARCHIVE_PAGE_RE`). Documented in `skills/wiki-fold/SKILL.md`.
 - Retrieval exclusions: `.vault-meta/retrieval.json` `{"exclude": [globs]}` read by
   `contextual-prefix.py`; separate from lint's `exclude`.
+- Log format owner `claude_obsidian/logfmt.py` (strict write, lenient read of the
+  legacy shapes) and the `log-entry` CLI command; `fold-extract.py` and
+  `log-archive.py` import it. `workflow.py` also accepts a dated-bullets log
+  (`logfmt.first_entry` / `is_prepend_of`) beside upstream's `## [date] op`.
+- Vault conventions: `claude_obsidian/conventions.py`, opt-in through
+  `.vault-meta/conventions.json`. `transaction._prepare_writes` collects the
+  originals and calls `_validate_vault_conventions` (`CONVENTION_VIOLATION`,
+  `INVALID_CONVENTIONS`); lint adds the `convention_violations` category;
+  `scripts/conventions-repair.py` drafts `lint-fix` bundles. Upstream tests
+  never write the file, so they are unaffected. Documented in
+  `docs/vault-conventions.md`.
 - `.serena/` (this config and these memories), `assets/diagrams/*.svg`,
   `assets/social-preview.png`, `docs/audits/*`, `docs/releases/v1.6.0.md` -
   fork-restored material. The audit and release docs are dated v1.6 to v1.9

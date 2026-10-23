@@ -46,7 +46,11 @@ subprocess): when a link is ambiguous between a page and a gitignored file
 such as a build artifact, the gitignored candidate is dropped.
 It reports such categories as dead or ambiguous links, orphan pages, required
 frontmatter gaps (including `title`), empty sections, stale index entries, and
-source/claim ledger contract violations. Report only the
+source/claim ledger contract violations. A vault that declares
+`.vault-meta/conventions.json` also gets `convention_violations`: property
+values and names outside its vocabulary, inline lists, forbidden characters in
+body prose, pages missing from their folder catalog, and log lines off the log
+format. Report only the
 checks and counts present in its output; do not claim that it performed
 semantic, stylistic, or prose-level contradiction analysis when it did
 not.
@@ -78,6 +82,17 @@ repair:
 
 Follow the [operation transaction contract](../wiki/references/operation-transactions.md).
 Lint itself never applies that transaction and never commits Git.
+
+For `convention_violations`, the repair can be drafted instead of hand-built,
+one kind per bundle, once the user chooses it:
+
+```bash
+python3 "$PRODUCT_ROOT/scripts/conventions-repair.py" --vault "$VAULT" \
+  --fix frontmatter --out DRAFT_DIR    # or --fix text, --fix catalogs
+```
+
+It writes nothing to the vault; it writes `DRAFT_DIR/bundle.json` (a
+`lint-fix` operation) for the same inspect, review and apply steps.
 
 ## Checkpoint
 

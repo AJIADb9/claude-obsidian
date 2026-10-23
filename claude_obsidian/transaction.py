@@ -3490,6 +3490,7 @@ def _prepare_writes(
     seen: set[str] = set()
     seen_casefold: dict[str, str] = {}
     prepared: list[PreparedWrite] = []
+    originals: dict[str, bytes] = {}
     total_content_bytes = 0
     total_backup_bytes = 0
     if backups_fd is None:
@@ -3624,6 +3625,7 @@ def _prepare_writes(
                 meta_fd=meta_fd,
             )
             assert original_content is not None
+            originals[normalized] = original_content
             if sha256_bytes(original_content) != current_hash:
                 raise TransactionConflict(
                     "EXPECTED_HASH_MISMATCH",
@@ -3668,6 +3670,7 @@ def _prepare_writes(
                                   root_fd=root_fd, meta_fd=meta_fd,
                                   planned_paths=planned_paths)
     _validate_provenance_writes(vault_root, prepared, root_fd=root_fd, meta_fd=meta_fd)
+    _validate_vault_conventions(vault_root, prepared, originals, root_fd=root_fd, meta_fd=meta_fd)
     return prepared
 
 
@@ -3870,6 +3873,44 @@ def _validate_provenance_writes(
         ordered = sorted(errors, key=lambda item: (item["path"], item["message"]))
         detail = "; ".join(f"{item['path']}: {item['message']}" for item in ordered)
         raise TransactionValidationError("INVALID_PROVENANCE_LEDGER", detail)
+
+
+def _validate_vault_conventions(
+    vault_root: Path,
+    prepared: Sequence[PreparedWrite],
+    originals: Mapping[str, bytes],
+    *,
+    root_fd: int | None = None,
+    meta_fd: int | None = None,
+) -> None:
+    """Fork: refuse writes that add text off the vault's declared conventions."""
+
+    from .conventions import CONVENTIONS_PATH, MAX_CONVENTIONS_BYTES, check_writes, load_conventions
+
+    def read(relative: str, limit: int = MAX_TRANSACTION_FILE_BYTES) -> bytes | None:
+        return read_vault_regular(vault_root, relative, limit=limit, root_fd=root_fd, meta_fd=meta_fd)
+
+    try:
+        conventions = load_conventions(lambda relative: read(relative, MAX_CONVENTIONS_BYTES))
+    except ValueError as exc:
+        raise TransactionValidationError(
+            "INVALID_CONVENTIONS", f"{CONVENTIONS_PATH}: {exc}"
+        ) from exc
+    if conventions is None:
+        return
+    violations = check_writes(
+        [(write.relative_path, write.content, originals.get(write.relative_path))
+         for write in prepared],
+        conventions,
+        read,
+    )
+    if violations:
+        shown = "; ".join(
+            f"{item.path}{':' + str(item.line) if item.line else ''}: {item.message}"
+            for item in violations[:20]
+        )
+        more = f" (and {len(violations) - 20} more)" if len(violations) > 20 else ""
+        raise TransactionValidationError("CONVENTION_VIOLATION", shown + more)
 
 
 def _journal_for(

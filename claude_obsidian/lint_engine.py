@@ -1893,6 +1893,30 @@ def lint_vault(
                 }
             )
 
+    # Fork: a vault that declares `.vault-meta/conventions.json` gets every
+    # page checked against it; without the file this category stays empty.
+    convention_violations: list[dict[str, Any]] = []
+    try:
+        from claude_obsidian.conventions import (
+            CONVENTIONS_PATH, MAX_CONVENTIONS_BYTES, load_conventions, vault_findings,
+        )
+        reader = _transaction_reader()
+        conventions = load_conventions(
+            lambda relative: reader(vault_root, relative, limit=MAX_CONVENTIONS_BYTES))
+    except Exception as exc:
+        configuration_errors.append({
+            "path": ".vault-meta/conventions.json",
+            "message": f"invalid conventions: {exc}",
+        })
+    else:
+        if conventions is not None:
+            display = {page.absolute.relative_to(vault_root).as_posix(): page.path
+                       for page in wiki_pages}
+            for item in vault_findings(((canonical, pages_by_path[shown].text)
+                                        for canonical, shown in display.items()), conventions):
+                item["path"] = display.get(item["path"], item["path"])
+                convention_violations.append(item)
+
     dead_links.sort(key=_entry_sort_key)
     ambiguous_targets.sort(key=_entry_sort_key)
     allowlisted.sort(key=_entry_sort_key)
@@ -1902,6 +1926,7 @@ def lint_vault(
     missing_frontmatter.sort(key=_entry_sort_key)
     empty_sections.sort(key=_entry_sort_key)
     oversized_hot_cache.sort(key=_entry_sort_key)
+    convention_violations.sort(key=_entry_sort_key)
     read_errors.sort(key=_entry_sort_key)
     configuration_errors.sort(key=_entry_sort_key)
     provenance_errors = _provenance_errors(vault_root, as_of=audit_date)
@@ -1925,6 +1950,7 @@ def lint_vault(
         "unsupported_fragments": unsupported_fragments,
         "invalid_frontmatter": invalid_frontmatter,
         "oversized_hot_cache": oversized_hot_cache,
+        "convention_violations": convention_violations,
     }
     category_counts = {name: len(entries) for name, entries in categories.items()}
     issues_found = sum(category_counts.values())
@@ -2114,6 +2140,15 @@ def render_markdown(report: dict[str, Any]) -> str:
                 f"- {_code(item['path'])}: ~{item['estimated_tokens']} tokens "
                 f"({item['words']} words) against a budget of {item['budget']}. "
                 "Estimated, not counted; prune to the archive page."
+            ),
+        ),
+        (
+            "Convention Violations",
+            "convention_violations",
+            lambda item: (
+                f"- {_code(item['path'])}"
+                f"{':' + str(item['line']) if item.get('line') else ''} "
+                f"({item['rule']}): {item['message']}"
             ),
         ),
         (
