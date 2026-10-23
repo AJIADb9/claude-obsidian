@@ -73,6 +73,7 @@ Exit codes:
 
 import argparse
 import atexit
+import fnmatch
 import hashlib
 import html
 import http.client
@@ -233,6 +234,40 @@ def configure_vault(explicit=None):
 
 def log(msg):
     print(msg, file=sys.stderr)
+
+
+# Fork: pages to keep out of retrieval, as globs in .vault-meta/retrieval.json
+# ({"exclude": [...]}), matched like lint's exclude: case-insensitive fnmatch
+# on the vault-relative path, where `*` also crosses `/`. Lint keeps checking
+# these pages; only chunking and the BM25 index leave them out.
+RETRIEVAL_CONFIG_RELATIVE = ".vault-meta/retrieval.json"
+RETRIEVAL_EXCLUDE = ()
+
+
+class RetrievalConfigError(ValueError):
+    pass
+
+
+def retrieval_exclude_patterns():
+    try:
+        raw = read_vault_regular(VAULT_ROOT, RETRIEVAL_CONFIG_RELATIVE, limit=1024 * 1024)
+    except (TransactionError, ValueError) as exc:
+        raise RetrievalConfigError(f"cannot read {RETRIEVAL_CONFIG_RELATIVE}: {exc}") from exc
+    if raw is None:
+        return ()
+    try:
+        config = strict_json_loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise RetrievalConfigError(f"{RETRIEVAL_CONFIG_RELATIVE} is not valid JSON: {exc}") from exc
+    patterns = config.get("exclude", []) if isinstance(config, dict) else None
+    if not isinstance(patterns, list) or not all(isinstance(p, str) and p.strip() for p in patterns):
+        raise RetrievalConfigError(f'{RETRIEVAL_CONFIG_RELATIVE} must hold {{"exclude": ["glob", ...]}}')
+    return tuple(p.strip().casefold() for p in patterns)
+
+
+def retrieval_excluded(page_path, patterns):
+    relative = page_path.relative_to(VAULT_ROOT).as_posix().casefold()
+    return any(fnmatch.fnmatchcase(relative, pattern) for pattern in patterns)
 
 
 def sha256(text):
@@ -1628,6 +1663,8 @@ def collect_pages(target):
                 path.resolve(strict=True).relative_to(WIKI_DIR.resolve())
             except (OSError, ValueError):
                 continue
+            if RETRIEVAL_EXCLUDE and retrieval_excluded(path, RETRIEVAL_EXCLUDE):
+                continue
             pages.append(path)
         return sorted(pages)
     p = Path(target)
@@ -1855,6 +1892,12 @@ def main():
             parser.error(str(exc))
     if not configure_vault(args.vault):
         return EXIT_USAGE
+    global RETRIEVAL_EXCLUDE
+    try:
+        RETRIEVAL_EXCLUDE = retrieval_exclude_patterns()
+    except RetrievalConfigError as exc:
+        log(f"ERR: {exc}")
+        return EXIT_USAGE
 
     if args.all and not args.path:
         args.path = "--all"
@@ -1882,6 +1925,10 @@ def main():
         if not target.is_file():
             log(f"ERR: {args.path} is not a readable file.")
             return EXIT_PAGE_MISSING
+        if RETRIEVAL_EXCLUDE and retrieval_excluded(pages[0], RETRIEVAL_EXCLUDE):
+            log(f"{args.path} is excluded by {RETRIEVAL_CONFIG_RELATIVE}; nothing to do. "
+                "An --all run removes chunks it still has.")
+            return EXIT_OK
     if args.peek:
         return process_selection(args, pages)
 

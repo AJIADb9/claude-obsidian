@@ -170,6 +170,17 @@ same fallback model. Without the flag the CLI is never executed.
 Inside WSL the Windows `claude.exe` is found through interop when no Linux
 `claude` is installed. Calls count against the user's Claude plan.
 
+## Fork: keeping pages out of retrieval
+
+`.vault-meta/retrieval.json` may hold `{"exclude": ["glob", ...]}`. Patterns
+match the vault-relative page path case-insensitively, with `*` also crossing
+`/`, as lint's `exclude` does. Excluded pages get no chunks: an `--all` run
+skips them and removes the chunks they still have, and a single-page run on one
+is a no-op. Lint is unaffected and still checks links into them. Use it for
+bookkeeping pages that repeat other pages' content, such as `wiki/log.md`,
+`wiki/index.md`, folder `_index.md` catalogs and `wiki/meta/log-archive/*`. A
+malformed file stops the run before any chunk is touched.
+
 ## Source envelopes and output validation
 
 Every current wiki page is decoded as strict UTF-8 during the address

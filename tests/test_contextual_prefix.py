@@ -2017,6 +2017,37 @@ def test_claude_cli_primary_mode_writes_cli_records_and_needs_consent():
             assert_eq(f"invalid --claude-cli combination {extra or 'without consent'} is a usage error", 2, run.returncode)
 
 
+def test_retrieval_config_excludes_pages_and_drops_their_chunks():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        archive = root / "wiki/meta/log-archive/Log Archive 2026-07.md"
+        archive.parent.mkdir(parents=True)
+        archive.write_text("---\ntitle: Log Archive 2026-07\n---\nArchived entries.\n", encoding="utf-8")
+        (root / "wiki/Kept.md").write_text("---\ntitle: Kept\n---\nKept body.\n", encoding="utf-8")
+        (root / "wiki/log.md").write_text("---\ntitle: Log\n---\nLog body.\n", encoding="utf-8")
+
+        def run(*extra):
+            return subprocess.run([sys.executable, "-B", str(HELPER), "--vault", str(root), "--no-llm", *extra],
+                                  capture_output=True, text=True, timeout=120)
+
+        def chunked_pages():
+            return sorted({json.loads(p.read_text(encoding="utf-8"))["page_path"]
+                           for p in (root / ".vault-meta/chunks").glob("*/chunk-*.json")})
+
+        assert_eq("baseline run succeeds", 0, run("--all").returncode)
+        assert_eq("baseline chunks every page", 3, len(chunked_pages()))
+        (root / ".vault-meta/retrieval.json").write_text(
+            json.dumps({"exclude": ["wiki/meta/log-archive/*", "WIKI/LOG.md"]}), encoding="utf-8")
+        assert_eq("excluding run succeeds", 0, run("--all").returncode)
+        assert_eq("excluded pages lose their chunks", ["wiki/Kept.md"], chunked_pages())
+        single = run("wiki/meta/log-archive/Log Archive 2026-07.md")
+        assert_eq("excluded single page is a no-op", 0, single.returncode)
+        assert_true("excluded single page says why", "excluded by" in single.stderr)
+        assert_eq("no chunks come back", ["wiki/Kept.md"], chunked_pages())
+        (root / ".vault-meta/retrieval.json").write_text('{"exclude": "wiki/log.md"}', encoding="utf-8")
+        assert_eq("malformed retrieval config fails closed", 2, run("--all").returncode)
+
+
 def main():
     print("=== test_contextual_prefix.py ===")
     test_invalid_utf8_aborts_selection_before_provider_or_cache_work()
@@ -2075,6 +2106,7 @@ def main():
     test_unavailable_primary_page_goes_to_the_fallback()
     test_claude_cli_fallback_requires_egress_consent()
     test_claude_cli_primary_mode_writes_cli_records_and_needs_consent()
+    test_retrieval_config_excludes_pages_and_drops_their_chunks()
     print("\nAll contextual-prefix tests passed.")
 
 

@@ -35,6 +35,12 @@ expect to replay it on the next upstream release.
   states a 30-word hard limit (`MODEL_PREFIX_PROMPT_WORDS`), which bumped
   `PREFIX_PROMPT_REVISION` to 4; an upstream prompt change must keep both.
   Documented in `docs/prefix-providers.md`.
+- Log archive mode: `fold-extract.py --oldest`, `scripts/log-archive.py` (moves a
+  fold's children verbatim into `wiki/meta/log-archive/Log Archive YYYY-MM.md`),
+  and `transaction.py` letting a `fold` also write those month pages
+  (`_LOG_ARCHIVE_PAGE_RE`). Documented in `skills/wiki-fold/SKILL.md`.
+- Retrieval exclusions: `.vault-meta/retrieval.json` `{"exclude": [globs]}` read by
+  `contextual-prefix.py`; separate from lint's `exclude`.
 - `.serena/` (this config and these memories), `assets/diagrams/*.svg`,
   `assets/social-preview.png`, `docs/audits/*`, `docs/releases/v1.6.0.md` -
   fork-restored material. The audit and release docs are dated v1.6 to v1.9
