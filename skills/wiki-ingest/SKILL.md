@@ -136,7 +136,9 @@ Draft a single `claude-obsidian.transaction.v1` bundle with
 - at least one active methodology index or MOC for every canonical page create
   or removal; update `wiki/index.md` only when it is an active catalog, and
   `wiki/overview.md` only when the high-level picture changed;
-- one batch log entry above every existing entry and a refreshed hot cache.
+- one batch log entry above every existing entry, drafted with
+  `python3 "$CORE" log-entry --op ingest --title "..." --output FILE` rather
+  than typed, and a refreshed hot cache.
 
 The workflow gate requires a source (a create-only `.raw/` payload or a recorded
 source in the source ledger) and a real change to at least one ledger. Never

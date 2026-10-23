@@ -63,6 +63,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 if str(PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT))
 
+from claude_obsidian import logfmt
 from claude_obsidian.paths import VaultSelectionError, resolve_vault_root
 from claude_obsidian.transaction import TransactionError, read_vault_regular
 
@@ -79,8 +80,9 @@ EXIT_UNVERIFIED = 4
 EXIT_SHORTFALL = 5
 EXIT_NO_OLLAMA = 10
 
-# `## 2026-08-14`
-DATE_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s*$")
+# `## 2026-08-14`. The log format is owned by claude_obsidian/logfmt.py; these
+# names stay for callers that import them from here.
+DATE_RE = logfmt.DATE_HEADING_RE
 # The fold id is used verbatim as a filename (`wiki/folds/{FOLD_ID}.md`), so it
 # must stay path-safe. Its inputs are an int, two ISO dates and an int, which is
 # safe today only by construction; assert the shape so a future change that
@@ -88,16 +90,11 @@ DATE_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s*$")
 FOLD_ID_RE = re.compile(
     r"^fold-k\d{1,2}-from-\d{4}-\d{2}-\d{2}-to-\d{4}-\d{2}-\d{2}-n\d+$"
 )
-# `- **query** | Scrap Mechanic — "what are the perks…"`
-# The op may be compound: `- **capture + save** | …` when one logical day of work
-# was applied as two transactions. An op is one token, optionally joined by `+`
-# to further tokens; spelling it that way rather than widening the character
-# class keeps bolded prose containing a pipe from parsing as an entry.
-OP_TOKEN = r"[a-z][a-z-]*"
-ENTRY_RE = re.compile(
-    rf"^-\s+\*\*({OP_TOKEN}(?:\s*\+\s*{OP_TOKEN})*)\*\*\s*\|\s*(.+?)\s*$",
-    re.IGNORECASE,
-)
+# `- **query** | Scrap Mechanic: "what are the perks…"`. Reading is lenient
+# (logfmt.match_entry), so legacy shapes such as `**query→web** | ...` or a
+# long dash in place of the pipe still count as entries.
+OP_TOKEN = logfmt.OP_TOKEN
+ENTRY_RE = logfmt.ENTRY_RE
 WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 
 PROMPT = """\
@@ -140,22 +137,22 @@ def parse_entries(text):
     cur = None
 
     for line in text.splitlines():
-        m_date = DATE_RE.match(line)
-        if m_date:
+        day = logfmt.match_date_heading(line, lenient=True)
+        if day:
             if cur:
                 entries.append(cur)
                 cur = None
-            current_date = m_date.group(1)
+            current_date = day
             continue
 
-        m_entry = ENTRY_RE.match(line)
+        m_entry = logfmt.match_entry(line, lenient=True)
         if m_entry and current_date:
             if cur:
                 entries.append(cur)
             cur = {
                 "date": current_date,
-                "op": m_entry.group(1).lower(),
-                "title": m_entry.group(2).strip(),
+                "op": m_entry[0],
+                "title": m_entry[1],
                 "body": [],
             }
             continue

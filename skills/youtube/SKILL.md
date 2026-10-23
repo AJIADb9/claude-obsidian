@@ -104,13 +104,14 @@ Hand the captured path to [wiki-ingest](../wiki-ingest/SKILL.md) and let it own
 the single `claude-obsidian.transaction.v1` bundle: source summary, canonical
 pages, entity and concept pages for the people, organizations, and products the
 video names, source and claim ledger records, `address_requests`, the active
-methodology index, one log entry, and the refreshed hot cache. Do not write vault
+methodology index, one log entry drafted with the core's `log-entry` command
+(`--op ingest`), and the refreshed hot cache. Do not write vault
 files with host Write/Edit, and do not build a second transaction for the same
 video.
 
 Let the active vault mode decide where pages land; do not hard-code a
 `wiki/sources/` layout. Title the canonical page from what the video is actually
-about, not from its title — clickbait titles are unsearchable six months later.
+about, not from its title: clickbait titles are unsearchable six months later.
 Aim for topic plus distinguishing detail, adding the channel in parentheses when
 the topic is generic, and keep `youtube_id`, `url`, `author`, and the verbatim
 `title` in frontmatter so nothing is lost.

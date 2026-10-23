@@ -124,6 +124,12 @@ the newest entry first and include the operation ID, operation type, principal
 pages, and a grounded outcome. Do not rewrite historical child entries when
 creating a fold.
 
+Fork: one day is one `## YYYY-MM-DD` heading, one operation is one
+`- **op** | title` bullet under it, and details are indented beneath the
+bullet. The op is a lowercase token (`save`, `ingest`, or `capture + save`);
+a qualifier belongs in the title. `claude_obsidian/logfmt.py` owns the format,
+and `claude-obsidian.py log-entry` drafts the entry so no agent types it.
+
 ### `wiki/hot.md`
 
 Hot context is short, sanitized, and useful for the next session. It may include

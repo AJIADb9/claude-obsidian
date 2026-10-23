@@ -80,6 +80,27 @@ def test_old_format_yields_nothing():
     check("legacy format parses to zero", fx.parse_entries(old) == [])
 
 
+def test_legacy_entry_shapes_still_parse():
+    print("test_legacy_entry_shapes_still_parse")
+    # Fork: entries the model typed off-format before the format had an owner.
+    # Each used to end the previous entry and vanish from every fold.
+    log = (
+        "## 2026-08-02\n\n"
+        "- **query→web** | Soulmask: FPV?\n  - answered\n\n"
+        "- **youtube** \u2014 ingested transcript\n\n"
+        "- **query** (standard) | EV3 vs Ioniq 3\n\n"
+        "## 2026-08-01 (later)\n\n"
+        "- **correction (user)** | no balcony doors\n"
+    )
+    entries = fx.parse_entries(log)
+    check("four legacy entries parsed", len(entries) == 4, f"got {len(entries)}")
+    check("label kept as written", [e["op"] for e in entries]
+          == ["query→web", "youtube", "query (standard)", "correction (user)"],
+          f"got {[e['op'] for e in entries]}")
+    check("suffixed heading names its day", entries[-1]["date"] == "2026-08-01")
+    check("body stays with its entry", entries[0]["body"][0].strip() == "- answered")
+
+
 def test_summarise_row():
     print("test_summarise_row")
     e = fx.parse_entries(SAMPLE_LOG)[0]
@@ -222,6 +243,7 @@ def main():
         test_parse_entries,
         test_headings_are_not_entries,
         test_old_format_yields_nothing,
+        test_legacy_entry_shapes_still_parse,
         test_summarise_row,
         test_summarise_prefers_findings,
         test_summarise_skips_bookkeeping_without_markers,

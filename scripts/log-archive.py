@@ -38,6 +38,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 if str(PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT))
 
+from claude_obsidian import logfmt
 from claude_obsidian.paths import VaultSelectionError, resolve_vault_root
 from claude_obsidian.transaction import TransactionError, read_vault_regular
 
@@ -73,19 +74,19 @@ def split_log(text):
     preamble, sections = [], []
     section = entry = None
     for line in text.split("\n"):
-        heading = fx.DATE_RE.match(line)
-        if heading:
-            section = {"date": heading.group(1), "head": [line], "entries": []}
+        day = logfmt.match_date_heading(line, lenient=True)
+        if day:
+            section = {"date": day, "head": [line], "entries": []}
             sections.append(section)
             entry = None
             continue
         if section is None:
             preamble.append(line)
             continue
-        match = fx.ENTRY_RE.match(line)
+        match = logfmt.match_entry(line, lenient=True)
         if match:
-            entry = {"date": section["date"], "op": match.group(1).lower(),
-                     "title": match.group(2).strip(), "lines": [line]}
+            entry = {"date": section["date"], "op": match[0],
+                     "title": match[1], "lines": [line]}
             section["entries"].append(entry)
         elif entry is None:
             section["head"].append(line)
@@ -205,10 +206,11 @@ def update_pointer(preamble, months):
 
 def prepend_entry(kept, entry_text, day):
     lines = entry_text.rstrip("\n").split("\n")
-    match = fx.ENTRY_RE.match(lines[0]) if lines else None
-    if not match or any(fx.ENTRY_RE.match(line) or fx.DATE_RE.match(line) for line in lines[1:]):
+    match = logfmt.CANONICAL_ENTRY_RE.match(lines[0]) if lines else None
+    if not match or any(logfmt.match_entry(line, lenient=True) or line.startswith("## ")
+                        for line in lines[1:]):
         raise ValueError("--prepend must hold exactly one '- **op** | title' entry")
-    entry = {"date": day, "op": match.group(1).lower(), "title": match.group(2).strip(),
+    entry = {"date": day, "op": match.group(1), "title": match.group(2),
              "lines": lines + [""]}
     if kept and kept[0]["date"] == day:
         return [{**kept[0], "entries": [entry] + kept[0]["entries"]}] + kept[1:]

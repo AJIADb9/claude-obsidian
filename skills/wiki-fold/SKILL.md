@@ -132,7 +132,9 @@ newest first. Use it when the user asks to fold and archive the log.
 1. Select the batch with `fold-extract.py --vault VAULT --k K --oldest --no-model`
    and save its JSON. Draft the fold from it as above.
 2. Write the fold's own log entry (`- **fold** | ...` plus indented lines) to a
-   file, then compute the move:
+   file, then compute the move. `log-archive.py` refuses an entry that is not
+   in the log format (`claude_obsidian/logfmt.py`): a lowercase op, a pipe,
+   a title.
 
    ```bash
    python3 "$PRODUCT_ROOT/scripts/log-archive.py" --vault VAULT --count 2^K \

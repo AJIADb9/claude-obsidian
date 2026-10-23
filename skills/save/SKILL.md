@@ -73,7 +73,11 @@ Draft all changes before touching vault state. A complete Save normally couples:
 - the selected note;
 - `wiki/index.md` or the active methodology index;
 - one new entry in `wiki/log.md` above every existing entry (directly below
-  the log title and introduction is fine), with existing lines unchanged;
+  the log title and introduction is fine), with existing lines unchanged.
+  Draft it with `python3 "$CORE" log-entry --vault /path/to/vault --op save
+  --title "..." --detail "..." --output /path/to/log.md` rather than typing
+  it: the command owns the entry format, places the entry under today's
+  `## YYYY-MM-DD` heading, and prints the hashes for the bundle;
 - a refreshed `wiki/hot.md` under **2048 tokens**;
 - source or claim ledger updates only when evidence changed.
 

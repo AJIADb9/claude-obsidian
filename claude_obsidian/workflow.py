@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterator, Mapping
 from .hook_adapter import MAX_CONTEXT_BYTES
 from .json_utils import strict_json_loads
+from . import logfmt
 from .limits import HOT_CACHE_TOKEN_BUDGET, estimate_tokens
 from .lint_engine import _parse_frontmatter, _yaml_scalar
 from .markdown_links import iter_markdown_links, mask_protected_regions
@@ -309,14 +310,19 @@ def inspect_workflow(vault: Path | str, bundle_or_path: Mapping[str, Any] | Path
         if log:
             lines, entry = _log_entry_split(_body(log))
             match = _LOG.match(lines[entry]) if entry is not None else None
+            # Fork: a dated-bullets log (`## YYYY-MM-DD` then `- **op** | title`,
+            # see logfmt) names the operation in its newest bullet instead.
+            dated = logfmt.first_entry(_body(log)) if match is None else None
             valid_date = False
-            if match is not None:
+            for day in ([match.group(1)] if match is not None else [dated[0]] if dated else []):
                 try:
-                    date.fromisoformat(match.group(1))
+                    date.fromisoformat(day)
                     valid_date = True
                 except ValueError:
                     pass
-            if not valid_date or match is None or match.group(2) != operation:
+            names_operation = (match.group(2) == operation if match is not None
+                               else dated is not None and operation in dated[1].split(' + '))
+            if not valid_date or not names_operation:
                 fail('INVALID_BATCH_LOG', 'wiki/log.md', 'first log entry must name this save or ingest operation with an ISO date')
             # Completed replay is checked against its retained result; the
             # current log is not an input there and is never read.
@@ -330,7 +336,9 @@ def inspect_workflow(vault: Path | str, bundle_or_path: Mapping[str, Any] | Path
                         'WORKFLOW_LOG_NOT_TEXT',
                         'existing wiki/log.md must be valid UTF-8 text',
                     ) from exc
-                if previous and not _log_preserves_history(previous, _body(log), entry):
+                preserved = (_log_preserves_history(previous, _body(log), entry) if dated is None
+                             else logfmt.is_prepend_of(previous, _body(log)))
+                if previous and not preserved:
                     fail('LOG_HISTORY_NOT_PRESERVED', 'wiki/log.md', 'add the new entry above every existing entry and keep the existing log lines unchanged')
         candidates = [p for p in writes if p.startswith('wiki/') and p.endswith('.md')
                    and p not in {'wiki/hot.md', 'wiki/log.md', 'wiki/overview.md'} and p not in catalogs

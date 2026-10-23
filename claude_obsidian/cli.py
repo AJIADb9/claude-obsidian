@@ -308,6 +308,42 @@ def command_lint(args: argparse.Namespace) -> int:
     return 1 if args.strict and report["summary"]["issues_found"] else 0
 
 
+def command_log_entry(args: argparse.Namespace) -> int:
+    """Fork: draft `wiki/log.md` with one new entry in the one log format.
+
+    Writes nothing to the vault. The output file becomes the log write's
+    `content_file` in the operation's bundle; the printed hashes are its
+    `expected_hashes` value and declared `sha256`.
+    """
+    from datetime import date as _date
+
+    from .logfmt import LogFormatError, format_entry, insert_entry
+    from .transaction import read_vault_regular, sha256_bytes
+
+    selection = _selection(args)
+    current = read_vault_regular(selection.root, "wiki/log.md", limit=64 * 1024 * 1024)
+    if current is None:
+        print("log-entry: the vault has no wiki/log.md", file=sys.stderr)
+        return 2
+    base = args.base.read_bytes() if args.base else current
+    try:
+        block = format_entry(args.op, args.title, args.detail)
+        updated = insert_entry(base.decode("utf-8"), args.date or _date.today().isoformat(), block)
+    except (LogFormatError, UnicodeDecodeError, ValueError) as exc:
+        print(f"log-entry: {exc}", file=sys.stderr)
+        return 2
+    data = updated.encode("utf-8")
+    args.output.write_bytes(data)
+    _emit({
+        "path": "wiki/log.md",
+        "expected_sha256": sha256_bytes(current),
+        "sha256": sha256_bytes(data),
+        "content_file": str(args.output),
+        "entry": block,
+    })
+    return 0
+
+
 def command_contracts(args: argparse.Namespace) -> int:
     if args.check_only:
         errors = validate_contracts(PLUGIN_ROOT)
@@ -1112,6 +1148,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--strict", action="store_true", help="Exit 1 when findings exist"
     )
     lint.set_defaults(handler=command_lint)
+
+    log_entry = subcommands.add_parser(
+        "log-entry", help="Draft wiki/log.md with one new entry in the log format"
+    )
+    _add_vault_argument(log_entry)
+    log_entry.add_argument("--op", required=True, help="lowercase op, such as save or 'capture + save'")
+    log_entry.add_argument("--title", required=True)
+    log_entry.add_argument("--detail", action="append", default=[],
+                           help="one indented detail line; repeatable")
+    log_entry.add_argument("--date", help="ISO YYYY-MM-DD; defaults to today")
+    log_entry.add_argument("--base", type=Path,
+                           help="draft log to add to instead of the vault's, e.g. a log-archive output")
+    log_entry.add_argument("--output", type=Path, required=True,
+                           help="where to write the drafted log")
+    log_entry.set_defaults(handler=command_log_entry)
 
     contracts = subcommands.add_parser(
         "contracts", help="Validate capability and product contracts"

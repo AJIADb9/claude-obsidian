@@ -128,7 +128,9 @@ The dossier operation may couple:
 - cited source pages and one research synthesis/dossier;
 - source and claim ledger updates;
 - manifest and address requests;
-- index, log, and hot-cache changes required to expose the dossier.
+- index, log, and hot-cache changes required to expose the dossier, with the
+  log entry drafted by `python3 "$CORE" log-entry --op autoresearch` rather
+  than typed.
 
 Every canonical page create or removal must update at least one active
 methodology index or MOC in the same bundle. Update `wiki/overview.md` only when
