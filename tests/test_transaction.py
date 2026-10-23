@@ -914,6 +914,45 @@ def test_operation_types_enforce_least_privilege_path_contracts() -> None:
         )
         assert inspect_bundle(vault, fold)["valid"] is True
 
+        # Fork: a fold may move its entries into month log archive pages.
+        archive_path = "wiki/meta/log-archive/Log Archive 2026-07.md"
+        archived_fold = dict(fold)
+        archived_fold["operation_id"] = "archived-fold"
+        archived_fold["writes"] = fold["writes"] + [
+            {"path": archive_path, "mode": "create", "content": "# Archive\n"}
+        ]
+        archived_fold["expected_hashes"] = {**fold["expected_hashes"], archive_path: None}
+        assert inspect_bundle(vault, archived_fold)["valid"] is True
+        for bad_archive in (
+            "wiki/meta/log-archive/Log Archive 2026-13.md",
+            "wiki/meta/log-archive/notes.md",
+            "wiki/meta/Log Archive 2026-07.md",
+        ):
+            stray = dict(archived_fold)
+            stray["operation_id"] = "stray-archive-fold"
+            stray["writes"] = fold["writes"] + [
+                {"path": bad_archive, "mode": "create", "content": "# no\n"}
+            ]
+            stray["expected_hashes"] = {**fold["expected_hashes"], bad_archive: None}
+            try:
+                inspect_bundle(vault, stray)
+            except TransactionValidationError as exc:
+                assert exc.code == "WRITE_SCOPE_VIOLATION", exc.code
+            else:
+                raise AssertionError(f"fold must not write {bad_archive}")
+        archive_only = dict(archived_fold)
+        archive_only["operation_id"] = "archive-without-fold"
+        archive_only["writes"] = [w for w in archived_fold["writes"] if not w["path"].startswith("wiki/folds/")]
+        archive_only["expected_hashes"] = {
+            k: v for k, v in archived_fold["expected_hashes"].items() if not k.startswith("wiki/folds/")
+        }
+        try:
+            inspect_bundle(vault, archive_only)
+        except TransactionValidationError as exc:
+            assert exc.code == "WRITE_SCOPE_VIOLATION", exc.code
+        else:
+            raise AssertionError("archive pages need a fold page in the same operation")
+
         incomplete_fold = dict(fold)
         incomplete_fold["operation_id"] = "incomplete-fold"
         incomplete_fold["writes"] = fold["writes"][:1]

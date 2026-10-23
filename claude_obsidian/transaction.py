@@ -110,6 +110,8 @@ _MANAGED_REQUEST_OPERATIONS = {"ingest", "autoresearch"}
 # `_index` keeps the catalog from sharing the `index` basename with
 # wiki/index.md, so an unqualified `[[index]]` stays unambiguous.
 _CANVAS_CATALOG_PATH = "wiki/canvases/_index.md"
+# Fork: month pages that receive log entries a fold moves out of wiki/log.md.
+_LOG_ARCHIVE_PAGE_RE = re.compile(r"wiki/meta/log-archive/Log Archive \d{4}-(?:0[1-9]|1[0-2])\.md")
 _LEGACY_CANVAS_CATALOG_PATH = "wiki/canvases/index.md"
 _DIRECT_MANAGED_METADATA_AUTHORITY = {
     ".raw/.manifest.json": {"setup", "migration"},
@@ -3349,10 +3351,12 @@ def _validate_operation_write_scope(
             and len(PurePosixPath(relative).parts) == 3
         )
         or relative in {"wiki/index.md", "wiki/log.md"}
+        or _LOG_ARCHIVE_PAGE_RE.fullmatch(relative)
     ):
         raise TransactionValidationError(
             "WRITE_SCOPE_VIOLATION",
-            f"fold operations may write only one fold page, wiki/index.md, and wiki/log.md: {relative}",
+            "fold operations may write only one fold page, wiki/index.md, wiki/log.md, "
+            f"and month log archive pages: {relative}",
         )
     if operation_type in _WIKI_ONLY_OPERATIONS and not relative.startswith("wiki/"):
         raise TransactionValidationError(
@@ -3393,7 +3397,10 @@ def _validate_operation_bundle_scope(
         for path in paths
         if path.startswith("wiki/folds/") and path.endswith(".md")
     }
-    if len(fold_pages) != 1 or paths != fold_pages | {"wiki/index.md", "wiki/log.md"}:
+    # Fork: a fold of the oldest entries may also move them verbatim into
+    # month archive pages; those are optional, the core triple is not.
+    archive_pages = {path for path in paths if _LOG_ARCHIVE_PAGE_RE.fullmatch(path)}
+    if len(fold_pages) != 1 or paths != fold_pages | archive_pages | {"wiki/index.md", "wiki/log.md"}:
         raise TransactionValidationError(
             "WRITE_SCOPE_VIOLATION",
             "fold operations require exactly one fold page plus wiki/index.md and wiki/log.md",

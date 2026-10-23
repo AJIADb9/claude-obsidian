@@ -35,6 +35,7 @@ Usage:
   fold-extract.py --vault PATH --k 4
   fold-extract.py --k 4 --model gem12:latest
   fold-extract.py --k 4 --no-model          # table only, no ollama call
+  fold-extract.py --k 6 --oldest --no-model # oldest 64 entries, for log archiving
   fold-extract.py --parse-only              # entry inventory, for debugging
 
 Exit codes:
@@ -378,6 +379,11 @@ def main():
         "--strict", action="store_true", help="also reject unsupported bare numbers"
     )
     p.add_argument(
+        "--oldest",
+        action="store_true",
+        help="fold the oldest 2^k entries instead of the newest (log archive mode)",
+    )
+    p.add_argument(
         "--allow-remote-ollama",
         action="store_true",
         help="Accept non-localhost OLLAMA_URL (potential data exfil)",
@@ -416,7 +422,9 @@ def main():
         log(f"ERR: need {want} entries for k={args.k}, log holds {len(entries)}")
         return EXIT_SHORTFALL
 
-    batch = entries[:want]
+    # The log is newest-first, so the oldest batch is the tail. Archive mode
+    # folds from the tail so that moving a batch out never shifts the next one.
+    batch = entries[-want:] if args.oldest else entries[:want]
     dates = sorted(e["date"] for e in batch)
     fold_id = f"fold-k{args.k}-from-{dates[0]}-to-{dates[-1]}-n{want}"
     if not FOLD_ID_RE.fullmatch(fold_id):
@@ -430,6 +438,7 @@ def main():
         "batch_exponent": args.k,
         "entry_count": want,
         "entry_range": {"from": dates[0], "to": dates[-1]},
+        "selection": "oldest" if args.oldest else "newest",
         "children": [
             {
                 "date": e["date"],

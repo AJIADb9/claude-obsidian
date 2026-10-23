@@ -5,9 +5,9 @@ description: "Create a bounded, extractive, structurally idempotent rollup of re
 
 # Extractive log fold
 
-Create an additive rollup of raw `wiki/log.md` entries. Never modify, move, or
-delete child entries or their pages. Do not perform fold-of-folds or trigger a
-fold automatically.
+Create an additive rollup of raw `wiki/log.md` entries. Never modify or delete
+child entries or their pages, and move them only in archive mode below. Do not
+perform fold-of-folds or trigger a fold automatically.
 
 Resolve the portable core from this skill's installation. Resolve the user vault
 by explicit `--vault`, `CLAUDE_OBSIDIAN_VAULT`, workspace config, then
@@ -121,6 +121,36 @@ python3 "$CORE" transaction inspect /path/to/fold-bundle.json --vault /path/to/v
 python3 "$CORE" transaction apply /path/to/fold-bundle.json --vault /path/to/vault \
   --approved-plan-sha256 "$APPROVAL_SHA256"
 ```
+
+## Archive mode (fork)
+
+Archive mode keeps `wiki/log.md` small the way the Hot Cache Archive keeps the
+hot cache small: a fold of the **oldest** entries moves exactly those entries,
+verbatim, into month pages `wiki/meta/log-archive/Log Archive YYYY-MM.md`,
+newest first. Use it when the user asks to fold and archive the log.
+
+1. Select the batch with `fold-extract.py --vault VAULT --k K --oldest --no-model`
+   and save its JSON. Draft the fold from it as above.
+2. Write the fold's own log entry (`- **fold** | ...` plus indented lines) to a
+   file, then compute the move:
+
+   ```bash
+   python3 "$PRODUCT_ROOT/scripts/log-archive.py" --vault VAULT --count 2^K \
+     --prepend fold-entry.md --expect-fold fold.json --out DRAFT_DIR
+   ```
+
+   It writes nothing to the vault. It refuses (exit 4) unless the entries it
+   would move are exactly the fold's children, and prints the writes for
+   `wiki/log.md` (entries removed, fold entry on top, month-archive links
+   refreshed) and each month page, with their expected and new SHA-256.
+3. Build one `fold` bundle from the fold page, the index entry and those
+   writes, using each `expected_sha256` as the precondition. The engine accepts
+   month archive pages only inside a fold that also writes its fold page,
+   `wiki/index.md` and `wiki/log.md`.
+4. Inspect, show the user the moved range and target pages, then apply once.
+
+Apply batches one at a time, oldest first: each later batch is newer than
+everything already archived, so month pages stay newest first.
 
 Report the operation ID and exact changed paths. The identical bundle and ID are
 idempotent. On exit 75, re-read and rebuild; after interruption, use
