@@ -71,6 +71,15 @@ class InsertTests(unittest.TestCase):
         self.assertEqual(head + "\n## 2026-10-23\n\n- **save** | First\n", updated)
         self.assertTrue(logfmt.is_prepend_of(head, updated))
 
+    def test_a_heading_less_log_keeps_every_byte(self):
+        for head in ("", "\n", "# Log", "# Log\n", "# Log\n\n"):
+            with self.subTest(head=head):
+                updated = logfmt.insert_entry(head, "2026-10-23", logfmt.format_entry("save", "First"))
+                self.assertTrue(updated.startswith(head))
+                self.assertTrue(updated.endswith("## 2026-10-23\n\n- **save** | First\n"))
+                self.assertNotIn("\n\n\n", updated)
+                self.assertTrue(logfmt.is_prepend_of(head, updated))
+
     def test_a_day_older_than_the_newest_is_refused(self):
         with self.assertRaises(logfmt.LogFormatError):
             logfmt.insert_entry(LOG, "2026-10-01", logfmt.format_entry("save", "Late"))
@@ -128,6 +137,10 @@ class ViolationTests(unittest.TestCase):
         found = logfmt.added_line_violations(LOG, bad)
         self.assertEqual(3, len(found), found)
         self.assertTrue(all(isinstance(number, int) for number, _ in found))
+
+    def test_an_impossible_date_heading_is_reported(self):
+        bad = LOG.replace("## 2026-10-22\n", "## 2026-02-30\n\n- **save** | X\n\n## 2026-10-22\n")
+        self.assertEqual(1, len(logfmt.added_line_violations(LOG, bad)))
 
     def test_moved_lines_and_detail_lines_pass(self):
         updated = logfmt.insert_entry(LOG, "2026-10-23", logfmt.format_entry("fold", "Rollup", ["Range: x"]))

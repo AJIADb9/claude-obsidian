@@ -155,6 +155,20 @@ class RuleTests(Fixture):
         self.assertEqual([], self.check([("wiki/hot.md", hot_new, hot_old),
                                          ("wiki/meta/Archive.md", archive_new, archive_old)]))
 
+    def test_history_is_judged_per_file_whatever_the_bundle_order(self):
+        line = f"Note {DASH} x\n"
+        kept = page(body=line)
+        for order in (0, 1):
+            writes = [("wiki/concepts/B.md", page(body=line), None),
+                      ("wiki/concepts/C.md", kept + "More.\n", kept)]
+            found = self.check(writes if order == 0 else writes[::-1])
+            self.assertEqual(["wiki/concepts/B.md"], [item.path for item in found], order)
+
+    def test_links_need_the_whole_path_tail(self):
+        self.assertFalse(cv.links_to("[[x/page]]", "wiki/a/xx/page.md"))
+        self.assertTrue(cv.links_to("[[xx/page]]", "wiki/a/xx/page.md"))
+        self.assertTrue(cv.links_to("[[wiki/a/xx/page|Page]]", "wiki/a/xx/page.md"))
+
     def test_exempt_paths_keep_their_dashes(self):
         self.assertEqual([], self.check([("wiki/folds/f.md", page(body=f"x {DASH} y\n"), None)]))
 
@@ -259,6 +273,10 @@ class CommandTests(Fixture):
                    "---\nstatus: stable\nconfidence: medium-high\nretrieved: 2026-10-01\ntags: [a, \"b c\"]\n---\n\n"
                    f"# Inline {DASH} heading\n\nProse {DASH} here and \"quoted {DASH} text\".\n")
         self.write("wiki/concepts/Crlf.md", "---\r\nstatus: stable\r\ntags: [z]\r\n---\r\n\r\nA \u2014 b\r\n")
+        self.write("wiki/concepts/Renamed.md", "---\nstate: stable\ntags: [ai, \"web: scraping\"]\n---\n\n# R\n")
+        self.declare({**CONVENTIONS, "frontmatter": {
+            **CONVENTIONS["frontmatter"],
+            "property_aliases": {"retrieved": "date_fetched", "state": "status"}}})
         for kind in ("frontmatter", "text", "catalogs"):
             out = Path(self.temporary.name) / f"repair-{kind}"
             result = self.run_command(REPAIR, "--vault", self.vault, "--fix", kind, "--out", out)
@@ -271,11 +289,13 @@ class CommandTests(Fixture):
                       inline)
         self.assertIn(f"# Inline {DASH} heading", inline)
         self.assertIn(f"Prose - here and \"quoted {DASH} text\".", inline)
+        renamed = (self.vault / "wiki/concepts/Renamed.md").read_text(encoding="utf-8")
+        self.assertIn("status: evergreen\ntags:\n  - ai\n  - \"web: scraping\"\n", renamed)
         crlf = (self.vault / "wiki/concepts/Crlf.md").read_bytes().decode("utf-8")
         self.assertEqual("---\r\nstatus: evergreen\r\ntags:\r\n  - z\r\n---\r\n\r\nA - b\r\n", crlf)
         catalog = (self.vault / "wiki/concepts/_index.md").read_text(encoding="utf-8")
         self.assertIn("## Uncatalogued", catalog)
-        self.assertIn("- [[Crlf]]\n- [[Inline]]\n", catalog)
+        self.assertIn("- [[Crlf]]\n- [[Inline]]\n- [[Renamed]]\n", catalog)
         self.assertEqual([], lint_vault(self.vault)["convention_violations"])
         again = self.run_command(REPAIR, "--vault", self.vault, "--fix", "catalogs",
                                  "--out", Path(self.temporary.name) / "again")

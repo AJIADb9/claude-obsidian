@@ -14,8 +14,9 @@ Kinds:
                as block lists. A page that already has the canonical property
                keeps both and is reported instead.
   text         replace forbidden characters in body prose with a hyphen.
-               Headings, code, links, URLs and quoted spans keep theirs, and so do the exempt paths and wiki/log.md, whose old
-               lines are history.
+               Headings, code, links, URLs and quoted spans keep theirs,
+               and so do the exempt paths, wiki/log.md and the month log
+               archives, whose old lines are history.
   catalogs     list every page its folder catalog misses under an
                `## Uncatalogued` section at the end of that catalog, as a
                bare link: no summary is invented for it.
@@ -54,6 +55,7 @@ from claude_obsidian.transaction import (
 EXIT_OK = 0
 EXIT_USAGE = 2
 UNCATALOGUED = "## Uncatalogued"
+ARCHIVED_LOG = "wiki/meta/log-archive/"
 _KEY_LINE_RE = re.compile(r"^([A-Za-z_][\w-]*):(.*)$")
 _PLAIN_ITEM_RE = re.compile(r"^[^\s\"'\[\]{}#&*!|>%@`,:][^\[\]{}#,]*$")
 
@@ -78,7 +80,7 @@ def wiki_pages(vault):
 
 def yaml_item(value):
     text = str(value)
-    if _PLAIN_ITEM_RE.match(text) and text == text.strip():
+    if _PLAIN_ITEM_RE.match(text) and text == text.strip() and ": " not in text and " #" not in text:
         return text
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -111,6 +113,7 @@ def repair_frontmatter(text, conventions):
                 keys.add(canonical)
                 changes.append(f"{folded} -> {canonical}")
         value = raw.strip()
+        folded = name.casefold()  # rules apply to the name the property now has
         alias = conventions.value_aliases.get(folded, {})
         scalar = cv._scalar(value) if value and not value.startswith("[") else None
         if scalar in alias:
@@ -216,7 +219,8 @@ def main():
                     summary[change] = summary.get(change, 0) + 1
     elif args.fix == "text":
         for path, text in pages:
-            if path == cv.LOG_PATH or cv.is_text_exempt(path, conventions):
+            if (path == cv.LOG_PATH or path.startswith(ARCHIVED_LOG)
+                    or cv.is_text_exempt(path, conventions)):
                 continue
             new, count = cv.replace_forbidden(text, conventions)
             if count:

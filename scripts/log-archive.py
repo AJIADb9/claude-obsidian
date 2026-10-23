@@ -212,6 +212,8 @@ def prepend_entry(kept, entry_text, day):
         raise ValueError("--prepend must hold exactly one '- **op** | title' entry")
     entry = {"date": day, "op": match.group(1), "title": match.group(2),
              "lines": lines + [""]}
+    if kept and kept[0]["date"] > day:
+        raise ValueError(f"the log already has a newer day ({kept[0]['date']}) than {day}")
     if kept and kept[0]["date"] == day:
         return [{**kept[0], "entries": [entry] + kept[0]["entries"]}] + kept[1:]
     return [{"date": day, "head": [f"## {day}", ""], "entries": [entry]}] + kept

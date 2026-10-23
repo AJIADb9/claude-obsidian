@@ -128,9 +128,12 @@ def insert_entry(text: str, day: str, block: str) -> str:
     lines = text.split("\n")
     first = _first_heading(lines)
     if first is None:
-        while lines and lines[-1] == "":
-            lines.pop()
-        return "\n".join(lines + ["", f"## {day}", "", *block_lines]) + "\n"
+        # Only add: end the last line, add one blank separator, then the day.
+        if not text or text == "\n" or text.endswith("\n\n"):
+            lead = ""
+        else:
+            lead = "\n" if text.endswith("\n") else "\n\n"
+        return text + lead + "\n".join([f"## {day}", "", *block_lines]) + "\n"
     newest = match_date_heading(lines[first], lenient=True)
     if newest is None:
         raise LogFormatError(f"the log's first heading is not a date: {lines[first]!r}")
@@ -205,8 +208,11 @@ def added_line_violations(
             continue
         if is_heading:
             seen_heading = True
-            if not DATE_HEADING_RE.match(line):
-                violations.append((number, "a log heading must be exactly '## YYYY-MM-DD'"))
+            day = match_date_heading(line)
+            try:
+                date.fromisoformat(day or "")
+            except ValueError:
+                violations.append((number, "a log heading must be exactly '## YYYY-MM-DD', a real date"))
             continue
         if not seen_heading or not line.strip() or line.startswith((" ", "\t")):
             continue

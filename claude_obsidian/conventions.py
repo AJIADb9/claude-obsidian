@@ -320,11 +320,13 @@ def forbidden_lines(
     conventions: Conventions,
     pool: Counter[str] | None = None,
     *,
+    moved: Counter[str] | None = None,
     headings: bool = True,
 ) -> list[tuple[int, str]]:
     """Return `(line_number, character)` for new body lines holding a forbidden character.
 
-    A line found in `pool` is history and is consumed from it instead. With
+    A line found in `pool` (the file's own old lines) or else in `moved`
+    (lines other files gave up) is history and is consumed from it. With
     `headings=False` heading lines are skipped: an existing heading is a link
     anchor that a repair must not change, so only a new one is judged.
     """
@@ -336,6 +338,9 @@ def forbidden_lines(
     for number, (line, masked) in enumerate(zip(text.split("\n"), protected_mask(text).split("\n")), 1):
         if pool is not None and pool[line] > 0:
             pool[line] -= 1
+            continue
+        if moved is not None and moved[line] > 0:
+            moved[line] -= 1
             continue
         if not headings and _HEADING_RE.match(line):
             continue
@@ -406,7 +411,7 @@ def links_to(catalog_text: str, page: str) -> bool:
     for match in iter_wikilinks(catalog_text):
         target = match.group("body").split("|", 1)[0].split("#", 1)[0].strip().casefold()
         target = target.removesuffix(".md")
-        if target in {stem, full, in_wiki} or target.endswith("/" + stem) and full.endswith(target):
+        if target in {stem, full, in_wiki} or full.endswith("/" + target):
             return True
     return False
 
@@ -429,10 +434,13 @@ def check_writes(
                              old.decode("utf-8") if old is not None else None)
         except UnicodeDecodeError:
             continue  # The markdown validator reports non-UTF-8 content.
-    pool: Counter[str] = Counter()
-    for _, old in decoded.values():
+    # A line another file in this operation gave up is a move, not new text.
+    # Only lines actually removed from their file count, so copying a line
+    # into a new page does not borrow its history.
+    moved: Counter[str] = Counter()
+    for new, old in decoded.values():
         if old is not None:
-            pool.update(old.split("\n"))
+            moved.update(Counter(old.split("\n")) - Counter(new.split("\n")))
 
     violations: list[Violation] = []
     for path, (new, old) in decoded.items():
@@ -440,7 +448,8 @@ def check_writes(
         for item in sorted(frontmatter_violations(new, conventions) - before):
             violations.append(Violation(path, "frontmatter", _frontmatter_message(item, conventions)))
         if not is_text_exempt(path, conventions):
-            for number, character in forbidden_lines(new, conventions, pool):
+            own = Counter(old.split("\n")) if old is not None else Counter()
+            for number, character in forbidden_lines(new, conventions, own, moved=moved):
                 violations.append(Violation(
                     path, "forbidden-character",
                     f"new text uses U+{ord(character):04X}; write a plain hyphen", number))
