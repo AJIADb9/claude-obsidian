@@ -486,7 +486,8 @@ def vault_findings(
         for item in sorted(frontmatter_violations(text, conventions)):
             findings.append({"path": path, "rule": "frontmatter",
                              "message": _frontmatter_message(item, conventions)})
-        if not is_text_exempt(path, conventions):
+        # The log's old lines are history; the write check judges its new ones.
+        if path != LOG_PATH and not is_text_exempt(path, conventions):
             hits = forbidden_lines(text, conventions, headings=False)
             if hits:
                 findings.append({"path": path, "rule": "forbidden-character", "line": hits[0][0],

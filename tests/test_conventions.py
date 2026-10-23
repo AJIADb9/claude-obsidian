@@ -236,7 +236,10 @@ class LintTests(Fixture):
         self.assertEqual([], report["convention_violations"])
         self.declare()
         self.write("wiki/concepts/Orphan.md", page())
+        self.write("wiki/log.md", LOG.replace("- **save** | Older", f"- **save** | Older {DASH} history"))
         report = lint_vault(self.vault)
+        self.assertNotIn(("wiki/log.md", "forbidden-character"),
+                         {(item["path"], item["rule"]) for item in report["convention_violations"]})
         rules = sorted({(item["path"], item["rule"]) for item in report["convention_violations"]})
         self.assertIn(("wiki/concepts/Existing.md", "frontmatter"), rules)
         self.assertIn(("wiki/concepts/Existing.md", "forbidden-character"), rules)
