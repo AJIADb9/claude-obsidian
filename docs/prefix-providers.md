@@ -150,6 +150,9 @@ local model's context, a failed local preflight, or a page the provider's
 size or request budget refuses. `--claude-cli-model` selects
 `claude-haiku-5-5` (default) or `claude-sonnet-5-5`, and
 `--claude-cli-max-requests` bounds the calls per operation (default 128).
+`--claude-cli` (also with `--allow-egress`) makes the same isolated CLI call
+the primary provider instead; its failures use synthetic prefixes. It cannot
+be combined with `--local-ollama` or `--claude-cli-fallback`.
 
 Each call replaces the system prompt with the same envelope rules, passes
 `--tools ""`, `--strict-mcp-config`, `--setting-sources ""` and

@@ -1169,7 +1169,7 @@ def prefix_profile_for(tier, *, anthropic_model=None, ollama_config=None, claude
     return profile
 
 
-def pick_prefix_tier(force_synthetic, allow_egress=False, *, local_ollama=False):
+def pick_prefix_tier(force_synthetic, allow_egress=False, *, local_ollama=False, claude_cli=False):
     """Only explicit local selection or consented direct API calls use a model."""
     if force_synthetic:
         return "synthetic"
@@ -1177,6 +1177,9 @@ def pick_prefix_tier(force_synthetic, allow_egress=False, *, local_ollama=False)
         return "ollama-local"
     if not allow_egress:
         return "synthetic"
+    if claude_cli:
+        # Fork: the Claude Code CLI login as the primary provider.
+        return "claude-code"
     if os.environ.get("ANTHROPIC_API_KEY"):
         return "anthropic-api"
     return "synthetic"
@@ -1311,6 +1314,7 @@ def process_page(
     ollama_request=None,
     claude_code=None,
     claude_code_budget=None,
+    claude_cli_primary=False,
 ):
     body = read_page(page_path, root_fd=root_fd)
     fm, content = parse_frontmatter(body)
@@ -1323,8 +1327,18 @@ def process_page(
         log(f"ERR: unsafe chunk directory for {address}: {exc}")
         raise SystemExit(EXIT_CHUNK_DIR) from exc
     chunks = chunk_body(content)
-    tier = pick_prefix_tier(force_synthetic, allow_egress=allow_egress, local_ollama=local_ollama)
-    prefix_profile = prefix_profile_for(tier, anthropic_model=anthropic_model, ollama_config=ollama_config)
+    tier = pick_prefix_tier(
+        force_synthetic,
+        allow_egress=allow_egress,
+        local_ollama=local_ollama,
+        claude_cli=claude_cli_primary and claude_code is not None,
+    )
+    prefix_profile = prefix_profile_for(
+        tier,
+        anthropic_model=anthropic_model,
+        ollama_config=ollama_config,
+        claude_code_model=claude_code["model"] if claude_code is not None else None,
+    )
     progress = (progress_label + " ") if progress_label else ""
     page_rel = str(page_path.relative_to(VAULT_ROOT))
     # Local mode without a current proof (preflight failed, or peek skipped
@@ -1479,24 +1493,24 @@ def process_page(
             ):
                 effective_tier = "synthetic"
 
-    # Fork: when the selected provider cannot take this page at all (outage,
-    # page size or budget), offer the whole page to the configured fallback.
+    # Fork: the CLI takes the page when it is the primary provider, or when the
+    # selected provider cannot take it at all (outage, page size or budget).
     if (
         not peek
         and planned
         and claude_code_profile is not None
-        and effective_tier == "synthetic"
-        and claude_code_budget is not None
-        and not claude_code_budget.failed
+        and effective_tier in {"synthetic", "claude-code"}
     ):
-        page_envelope_id = page_envelope_id or secrets.token_hex(16)
-        title = fm.get("title") or "(untitled)"
-        fallback_sizes = [
-            _claude_code_request_bytes(title, content, raw, envelope_id=page_envelope_id)
-            for _, raw, _, _ in planned
-        ]
-        if claude_code_budget.page_fits(fallback_sizes):
-            effective_tier = "claude-code"
+        effective_tier = "synthetic"
+        if claude_code_budget is not None and not claude_code_budget.failed:
+            page_envelope_id = page_envelope_id or secrets.token_hex(16)
+            title = fm.get("title") or "(untitled)"
+            fallback_sizes = [
+                _claude_code_request_bytes(title, content, raw, envelope_id=page_envelope_id)
+                for _, raw, _, _ in planned
+            ]
+            if claude_code_budget.page_fits(fallback_sizes):
+                effective_tier = "claude-code"
 
     # Keep provider requests sequential and bounded. Fresh request envelopes
     # are shared within a page so its system and page blocks remain stable.
@@ -1658,7 +1672,8 @@ def process_selection(args, pages, *, root_fd=None, meta_fd=None):
             )
     claude_code = None
     claude_code_budget = None
-    if getattr(args, "claude_cli_fallback", False) and not args.no_llm:
+    claude_cli_primary = getattr(args, "claude_cli", False)
+    if (getattr(args, "claude_cli_fallback", False) or claude_cli_primary) and not args.no_llm:
         # A peek only needs the model, to recognise records the fallback made.
         claude_code = (
             {"model": args.claude_cli_model}
@@ -1692,6 +1707,7 @@ def process_selection(args, pages, *, root_fd=None, meta_fd=None):
             ollama_request=ollama_request,
             claude_code=claude_code,
             claude_code_budget=claude_code_budget,
+            claude_cli_primary=claude_cli_primary,
         )
         total_written += len(result["written"])
         total_skipped += result["skipped"]
@@ -1805,8 +1821,15 @@ def main():
         "servers, settings, hooks and project memory. Sends page text to Anthropic; "
         "requires --allow-egress.",
     )
+    parser.add_argument(
+        "--claude-cli",
+        action="store_true",
+        help="Fork: use the local Claude Code CLI login, isolated as for --claude-cli-fallback, "
+        "as the prefix provider. Failures use synthetic prefixes. Sends page text to "
+        "Anthropic; requires --allow-egress.",
+    )
     parser.add_argument("--claude-cli-model", choices=CLAUDE_CODE_MODELS, default=CLAUDE_CODE_DEFAULT_MODEL,
-                        help="Model for --claude-cli-fallback (default: claude-haiku-5-5).")
+                        help="Model for --claude-cli and --claude-cli-fallback (default: claude-haiku-5-5).")
     parser.add_argument(
         "--claude-cli-max-requests",
         type=lambda value: _bounded_positive_int(
@@ -1815,11 +1838,15 @@ def main():
             label="claude-cli fallback request budget",
         ),
         default=PROVIDER_OPERATION_MAX_REQUESTS,
-        help="Maximum fallback CLI calls for the whole operation (default: 128).",
+        help="Maximum Claude Code CLI calls for the whole operation (default: 128).",
     )
     args = parser.parse_args()
-    if args.claude_cli_fallback and not args.no_llm and not args.allow_egress:
-        parser.error("--claude-cli-fallback sends page text to Anthropic and requires --allow-egress")
+    for flag, enabled in (("--claude-cli", args.claude_cli), ("--claude-cli-fallback", args.claude_cli_fallback)):
+        if enabled and not args.no_llm and not args.allow_egress:
+            parser.error(f"{flag} sends page text to Anthropic and requires --allow-egress")
+    if args.claude_cli and (args.local_ollama or args.claude_cli_fallback):
+        parser.error("--claude-cli is the primary provider; it cannot be combined with "
+                     "--local-ollama or --claude-cli-fallback")
     if args.local_ollama and not args.no_llm:
         try:
             validated = validate_ollama_config(args.ollama_url, args.ollama_model, allow_remote=args.allow_remote_ollama)

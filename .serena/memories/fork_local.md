@@ -29,7 +29,8 @@ expect to replay it on the next upstream release.
   stays. Save, Ingest and `docs/workflow-acceptance.md` state the token budget.
 - Prefix fallback tier in `scripts/contextual-prefix.py`: `--claude-cli-fallback`
   (needs `--allow-egress`) retries failed chunks through an isolated `claude -p`
-  (tier `claude-code`, Haiku by default). Upstream's removed `claude-cli` tier and
+  (tier `claude-code`, Haiku by default); `--claude-cli` makes that call the
+  primary provider. Upstream's removed `claude-cli` tier and
   its tests stay removed; do not rename the fork tier to `claude-cli`. The prompt
   states a 30-word hard limit (`MODEL_PREFIX_PROMPT_WORDS`), which bumped
   `PREFIX_PROMPT_REVISION` to 4; an upstream prompt change must keep both.

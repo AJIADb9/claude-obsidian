@@ -1986,6 +1986,37 @@ def test_claude_cli_fallback_requires_egress_consent():
     assert_true("usage error names the consent flag", "--allow-egress" in run.stderr)
 
 
+def test_claude_cli_primary_mode_writes_cli_records_and_needs_consent():
+    assert_eq("CLI primary needs egress consent", "synthetic",
+              cp.pick_prefix_tier(False, allow_egress=False, claude_cli=True))
+    assert_eq("CLI primary tier", "claude-code", cp.pick_prefix_tier(False, allow_egress=True, claude_cli=True))
+    assert_eq("--no-llm overrides CLI primary", "synthetic", cp.pick_prefix_tier(True, allow_egress=True, claude_cli=True))
+    with tempfile.TemporaryDirectory() as directory:
+        vault = Path(directory)
+        page = vault / "wiki/Page.md"
+        page.parent.mkdir()
+        page.write_text("---\ntitle: Page\n---\nBody.\n", encoding="utf-8")
+        cli = {"model": "claude-haiku-5-5", "executable": "claude", "workdir": directory}
+        with _fixture_paths(vault):
+            with (mock.patch.object(cp, "ollama_prefix", side_effect=AssertionError("no local call")),
+                  mock.patch.object(cp, "anthropic_api_prefix", side_effect=AssertionError("no API call")),
+                  mock.patch.object(cp, "claude_code_prefix", return_value="Primary context sentence.") as call):
+                first = cp.process_page(page, allow_egress=True, claude_code=cli,
+                                        claude_code_budget=cp.ProviderOperationBudget(), claude_cli_primary=True)
+                second = cp.process_page(page, allow_egress=True, claude_code=cli,
+                                         claude_code_budget=cp.ProviderOperationBudget(), claude_cli_primary=True)
+            record = json.loads(next(cp.CHUNKS_DIR.glob("*/chunk-000.json")).read_bytes())
+        assert_eq("primary CLI writes", 1, len(first["written"]))
+        assert_eq("primary CLI record reused", 1, second["skipped"])
+        assert_eq("primary CLI called once", 1, call.call_count)
+        assert_eq("primary record source", "claude-code", record["prefix_source"])
+    with tempfile.TemporaryDirectory() as directory:
+        for extra in ([], ["--allow-egress", "--local-ollama", "--ollama-model", "tiny:fixture"]):
+            run = subprocess.run([sys.executable, "-B", str(HELPER), "--vault", directory, "--peek",
+                                  "--claude-cli", *extra], capture_output=True, text=True, timeout=60)
+            assert_eq(f"invalid --claude-cli combination {extra or 'without consent'} is a usage error", 2, run.returncode)
+
+
 def main():
     print("=== test_contextual_prefix.py ===")
     test_invalid_utf8_aborts_selection_before_provider_or_cache_work()
@@ -2043,6 +2074,7 @@ def main():
     test_ollama_failure_falls_back_to_claude_code_and_reuses_its_record()
     test_unavailable_primary_page_goes_to_the_fallback()
     test_claude_cli_fallback_requires_egress_consent()
+    test_claude_cli_primary_mode_writes_cli_records_and_needs_consent()
     print("\nAll contextual-prefix tests passed.")
 
 
