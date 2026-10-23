@@ -27,6 +27,13 @@ expect to replay it on the next upstream release.
   lint reports `oversized_hot_cache` (non-blocking) and `workflow.py` refuses
   `HOT_CONTEXT_TOO_LARGE` from the same estimate. Upstream's 32 KiB byte bound
   stays. Save, Ingest and `docs/workflow-acceptance.md` state the token budget.
+- Prefix fallback tier in `scripts/contextual-prefix.py`: `--claude-cli-fallback`
+  (needs `--allow-egress`) retries failed chunks through an isolated `claude -p`
+  (tier `claude-code`, Haiku by default). Upstream's removed `claude-cli` tier and
+  its tests stay removed; do not rename the fork tier to `claude-cli`. The prompt
+  states a 30-word hard limit (`MODEL_PREFIX_PROMPT_WORDS`), which bumped
+  `PREFIX_PROMPT_REVISION` to 4; an upstream prompt change must keep both.
+  Documented in `docs/prefix-providers.md`.
 - `.serena/` (this config and these memories), `assets/diagrams/*.svg`,
   `assets/social-preview.png`, `docs/audits/*`, `docs/releases/v1.6.0.md` -
   fork-restored material. The audit and release docs are dated v1.6 to v1.9

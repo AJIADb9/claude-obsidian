@@ -140,6 +140,33 @@ from previous prompt revisions regenerate on the next explicit build, even
 when their text happens to match the synthetic result. They are never retained
 as an equivalent safe fallback.
 
+## Fork: Claude Code CLI fallback
+
+This fork adds one explicit fallback tier. `--claude-cli-fallback` (with the
+required `--allow-egress`) retries a chunk through the local Claude Code CLI
+login when the selected provider cannot produce a valid prefix for it: an
+invalid or unusable reply, an HTTP error such as a page that overflows the
+local model's context, a failed local preflight, or a page the provider's
+size or request budget refuses. `--claude-cli-model` selects
+`claude-haiku-5-5` (default) or `claude-sonnet-5-5`, and
+`--claude-cli-max-requests` bounds the calls per operation (default 128).
+
+Each call replaces the system prompt with the same envelope rules, passes
+`--tools ""`, `--strict-mcp-config`, `--setting-sources ""` and
+`--no-session-persistence`, sends page text over stdin, and runs in an empty
+temporary folder, so host tools, MCP servers, settings, hooks, plugins and
+project memory do not load. `--bare` is not used because it ignores the CLI
+login. Only a successful reply from exactly the requested model is accepted,
+and it passes the same validator. Login, quota, model and launch failures open
+the fallback's own circuit; one over-long reply does not. With a fallback
+configured, a per-chunk reply problem from local Ollama no longer opens the
+local circuit; transport failures still do. Records are stored with
+`prefix_source: claude-code` and are reused on reruns that configure the
+same fallback model. Without the flag the CLI is never executed.
+
+Inside WSL the Windows `claude.exe` is found through interop when no Linux
+`claude` is installed. Calls count against the user's Claude plan.
+
 ## Source envelopes and output validation
 
 Every current wiki page is decoded as strict UTF-8 during the address
@@ -160,8 +187,10 @@ identifier within one page keeps its system and page blocks byte stable across
 chunk requests. Eligibility markers are retained, but only provider telemetry
 establishes actual cache use.
 
-A model response must be UTF-8 encodable, nonempty, a single line, at most 34
-whitespace-separated words and at most 280 Unicode characters. The character
+The prompt asks for at most 30 words and calls it a hard limit, leaving the
+validator four words of slack. A model response must be UTF-8 encodable,
+nonempty, a single line, at most 34 whitespace-separated words and at most
+280 Unicode characters. The character
 bound also applies to writing without spaces. Validation allows non-Latin
 scripts and the joining characters used by some languages. It rejects control
 characters, line separators, directional formatting controls and markup

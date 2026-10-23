@@ -1854,6 +1854,138 @@ def test_provider_request_deadline_bounds_slow_drip():
     assert_true(f"slow-drip preflight is bounded ({elapsed:.1f}s)", elapsed < 3.0)
 
 
+def _claude_result(result="A short valid context sentence.", model="claude-haiku-5-5", **extra):
+    document = {"type": "result", "subtype": "success", "is_error": False,
+                "result": result, "modelUsage": {model: {"inputTokens": 1}}}
+    document.update(extra)
+    return subprocess.CompletedProcess(["claude"], 0, stdout=json.dumps(document), stderr="")
+
+
+def test_prompt_states_a_hard_word_limit_below_the_validator():
+    system, _, _ = cp.source_envelope("T", "Body.", "chunk")
+    assert_true("prompt names the word limit", f"at most {cp.MODEL_PREFIX_PROMPT_WORDS} words" in system)
+    assert_true("prompt calls it a hard limit", "hard limit" in system)
+    assert_true("prompt limit leaves validator slack", cp.MODEL_PREFIX_PROMPT_WORDS < cp.MODEL_PREFIX_MAX_WORDS)
+
+
+def test_claude_code_fallback_is_isolated_and_strict():
+    with tempfile.TemporaryDirectory() as workdir:
+        config = {"model": "claude-haiku-5-5", "executable": "claude", "workdir": workdir}
+        with mock.patch.object(subprocess, "run", return_value=_claude_result()) as run:
+            budget = cp.ProviderOperationBudget()
+            text = cp.claude_code_prefix(config, "Title", "Private body.", "chunk", provider_budget=budget)
+        assert_eq("valid CLI reply accepted", "A short valid context sentence.", text)
+        argv = run.call_args.args[0]
+        for flag, value in (("--tools", ""), ("--setting-sources", ""), ("--model", "claude-haiku-5-5"),
+                            ("--output-format", "json")):
+            assert_eq(f"CLI {flag} value", value, argv[argv.index(flag) + 1])
+        for flag in ("-p", "--strict-mcp-config", "--no-session-persistence", "--system-prompt"):
+            assert_true(f"CLI passes {flag}", flag in argv)
+        assert_true("system prompt replaced with the envelope rules",
+                    "hard limit" in argv[argv.index("--system-prompt") + 1])
+        assert_eq("CLI runs in the empty work folder", workdir, run.call_args.kwargs["cwd"])
+        assert_true("page text goes over stdin, not argv", "Private body." in run.call_args.kwargs["input"]
+                    and not any("Private body." in part for part in argv))
+        assert_eq("budget counts the call", 1, budget.requests)
+
+        for label, reply in (("other model rejected", _claude_result(model="claude-opus-5-5")),
+                             ("error reply rejected", _claude_result(is_error=True)),
+                             ("non-success rejected", _claude_result(subtype="error_max_turns")),
+                             ("non-JSON rejected", subprocess.CompletedProcess(["claude"], 0, stdout="Not logged in", stderr=""))):
+            budget = cp.ProviderOperationBudget()
+            with mock.patch.object(subprocess, "run", return_value=reply):
+                assert_eq(label, None, cp.claude_code_prefix(config, "T", "B", "C", provider_budget=budget))
+            assert_true(f"{label}: repeating failure opens the fallback circuit", budget.failed)
+
+        budget = cp.ProviderOperationBudget()
+        with mock.patch.object(subprocess, "run", return_value=_claude_result(result="word " * 40)):
+            assert_eq("over-long reply rejected", None, cp.claude_code_prefix(config, "T", "B", "C", provider_budget=budget))
+        assert_true("one over-long reply keeps the fallback circuit closed", not budget.failed)
+
+        budget = cp.ProviderOperationBudget()
+        with mock.patch.object(subprocess, "run", side_effect=FileNotFoundError("claude")):
+            assert_eq("missing executable is safe", None, cp.claude_code_prefix(config, "T", "B", "C", provider_budget=budget))
+        assert_true("missing executable opens the fallback circuit", budget.failed)
+
+
+def test_soft_ollama_failures_keep_the_circuit_closed_only_with_a_fallback():
+    config = {"url": "http://127.0.0.1:11434", "model": "tiny:fixture", "digest": "sha256:" + "a" * 64}
+    long_reply = {"model": "tiny:fixture", "response": "word " * 50, "done": True, "done_reason": "stop"}
+    overflow = cp.urllib.error.HTTPError("http://127.0.0.1:11434/api/generate", 400, "context", {}, None)
+    outage = cp.urllib.error.URLError(ConnectionRefusedError("refused"))
+    for label, effect, soft_stays_closed in (("invalid reply", {"return_value": ProviderResponse(long_reply)}, True),
+                                             ("HTTP error status", {"side_effect": overflow}, True),
+                                             ("connection failure", {"side_effect": outage}, False)):
+        for soft in (False, True):
+            budget = cp.ProviderOperationBudget()
+            with mock.patch.object(cp, "_open_provider_request", **effect):
+                assert_eq(f"{label} yields no prefix", None,
+                          cp.ollama_prefix(config, "T", "B", "C", provider_budget=budget, soft_failures=soft))
+            expected_open = not (soft and soft_stays_closed)
+            assert_eq(f"{label} circuit (soft={soft})", expected_open, budget.failed)
+
+
+def test_ollama_failure_falls_back_to_claude_code_and_reuses_its_record():
+    with tempfile.TemporaryDirectory() as directory:
+        vault = Path(directory)
+        page = vault / "wiki/Page.md"
+        page.parent.mkdir()
+        page.write_text("---\ntitle: Page\n---\nBody.\n", encoding="utf-8")
+        base = {"url": "http://127.0.0.1:11434", "model": "tiny:fixture", "digest": "sha256:" + "a" * 64}
+        fallback = {"model": "claude-haiku-5-5", "executable": "claude", "workdir": directory}
+        with _fixture_paths(vault):
+            with (mock.patch.object(cp, "ollama_prefix", return_value=None),
+                  mock.patch.object(cp, "claude_code_prefix", return_value="Fallback context sentence.")):
+                first = cp.process_page(page, local_ollama=True, ollama_config=base, claude_code=fallback,
+                                        claude_code_budget=cp.ProviderOperationBudget())
+            assert_eq("fallback chunk written", 1, len(first["written"]))
+            record = json.loads(next(cp.CHUNKS_DIR.glob("*/chunk-000.json")).read_bytes())
+            assert_eq("record names the fallback", "claude-code", record["prefix_source"])
+            assert_eq("record carries the fallback profile",
+                      cp.prefix_profile_for("claude-code", claude_code_model="claude-haiku-5-5"), record["prefix_profile"])
+            with (mock.patch.object(cp, "ollama_prefix", side_effect=AssertionError("no primary call")),
+                  mock.patch.object(cp, "claude_code_prefix", side_effect=AssertionError("no fallback call"))):
+                second = cp.process_page(page, local_ollama=True, ollama_config=base, claude_code=fallback,
+                                         claude_code_budget=cp.ProviderOperationBudget())
+            assert_eq("fallback record reused on rerun", 1, second["skipped"])
+            with (mock.patch.object(cp, "ollama_prefix", return_value="Local sentence."),
+                  mock.patch.object(cp, "claude_code_prefix", side_effect=AssertionError("fallback not configured"))):
+                third = cp.process_page(page, local_ollama=True, ollama_config=base)
+            assert_eq("without the fallback the primary regenerates", 1, len(third["written"]))
+        with (mock.patch.object(cp, "ollama_prefix", return_value=None),
+              mock.patch.object(subprocess, "run", side_effect=AssertionError("CLI needs explicit opt-in"))):
+            _, source = cp.generate_prefix("ollama-local", {"title": "T"}, "B", "C", ollama_config=base)
+        assert_eq("no fallback configured stays synthetic", "synthetic", source)
+
+
+def test_unavailable_primary_page_goes_to_the_fallback():
+    with tempfile.TemporaryDirectory() as directory:
+        vault = Path(directory)
+        page = vault / "wiki/Page.md"
+        page.parent.mkdir()
+        page.write_text("---\ntitle: Page\n---\nBody.\n", encoding="utf-8")
+        fallback = {"model": "claude-haiku-5-5", "executable": "claude", "workdir": directory}
+        with _fixture_paths(vault):
+            with (mock.patch.object(cp, "ollama_prefix", side_effect=AssertionError("unproved primary")),
+                  mock.patch.object(cp, "claude_code_prefix", return_value="Fallback context sentence.")):
+                result = cp.process_page(page, local_ollama=True, ollama_config=None,
+                                         ollama_request={"url": "http://127.0.0.1:11434", "model": "tiny:fixture",
+                                                         "allow_remote": False},
+                                         claude_code=fallback, claude_code_budget=cp.ProviderOperationBudget())
+            record = json.loads(next(cp.CHUNKS_DIR.glob("*/chunk-000.json")).read_bytes())
+        assert_eq("outage page written by the fallback", 1, len(result["written"]))
+        assert_eq("outage record names the fallback", "claude-code", record["prefix_source"])
+
+
+def test_claude_cli_fallback_requires_egress_consent():
+    with tempfile.TemporaryDirectory() as directory:
+        run = subprocess.run([sys.executable, "-B", str(HELPER), "--vault", directory, "--peek",
+                              "--local-ollama", "--ollama-model", "tiny:fixture", "--claude-cli-fallback"],
+                             capture_output=True, text=True, timeout=60)
+    assert_eq("fallback without --allow-egress is a usage error", 2, run.returncode)
+    assert_true("usage error names the consent flag", "--allow-egress" in run.stderr)
+
+
 def main():
     print("=== test_contextual_prefix.py ===")
     test_invalid_utf8_aborts_selection_before_provider_or_cache_work()
@@ -1905,6 +2037,12 @@ def main():
     test_parse_frontmatter_accepts_crlf()
     test_local_outage_preserves_valid_local_records_and_ready_index()
     test_provider_request_deadline_bounds_slow_drip()
+    test_prompt_states_a_hard_word_limit_below_the_validator()
+    test_claude_code_fallback_is_isolated_and_strict()
+    test_soft_ollama_failures_keep_the_circuit_closed_only_with_a_fallback()
+    test_ollama_failure_falls_back_to_claude_code_and_reuses_its_record()
+    test_unavailable_primary_page_goes_to_the_fallback()
+    test_claude_cli_fallback_requires_egress_consent()
     print("\nAll contextual-prefix tests passed.")
 
 
