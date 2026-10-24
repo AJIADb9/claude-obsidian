@@ -155,6 +155,7 @@ class CanonicalContractTests(unittest.TestCase):
             "tests/test_retrieve.py",
             "tests/test_vault_ops.py",
             "tests/test_wiki_mode.py",
+            "tests/test_youtube_ingest.py",  # fork
         }
         for capability in document["capabilities"]:
             command = capability["verification_command"]

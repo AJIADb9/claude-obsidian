@@ -7,9 +7,14 @@ expect to replay it on the next upstream release.
 
 ## Fork-only content
 
-- `skills/youtube/SKILL.md` - transcript capture via `uvx youtube-transcript-api`,
-  filed through `wiki-ingest`. It is the 16th skill and the reason every
-  upstream count assertion of 15 has to become 16.
+- `skills/youtube/SKILL.md` + `scripts/youtube-ingest.py` + `tests/test_youtube_ingest.py`
+  - the script fetches a transcript, has Haiku summarize it (isolated `claude -p`,
+  needs `--allow-egress`; `--ollama-model` for local), and applies one `ingest`
+  transaction (raw transcript, note flagged `enrichment: pending`, catalog link,
+  log entry, manifest record, address); the session model then enriches through
+  `wiki-ingest`. It is the 16th skill and the reason every upstream count
+  assertion of 15 has to become 16; its verifier is added to the behavioral set
+  in `tests/test_contracts.py`.
 - `scripts/fold-extract.py` + `tests/test_fold_extract.py` - deterministic parser
   behind `wiki-fold`, with an optional local-Ollama synthesis pass that refuses a
   non-localhost `OLLAMA_URL` without `--allow-remote-ollama`. It makes `wiki-fold`

@@ -677,29 +677,34 @@
       "id": "youtube",
       "tier": "extension",
       "implementation_paths": [
+        "scripts/youtube-ingest.py",
         "skills/youtube/SKILL.md"
       ],
       "read_scope": [
         "plugin:skills/**",
         "vault:.raw/**",
         "vault:.vault-meta/**",
-        "vault:inbox/**"
+        "vault:wiki/**"
       ],
       "write_scope": [
         {
-          "pattern": "vault:inbox/**",
+          "pattern": "vault:.raw/**",
           "access": "create_only"
         },
         {
-          "pattern": "vault:.raw/**",
-          "access": "create_only"
+          "pattern": "vault:.raw/.manifest.json",
+          "access": "transactional"
+        },
+        {
+          "pattern": "vault:wiki/**",
+          "access": "transactional"
         }
       ],
       "needs": {
         "shell": true,
         "network": true
       },
-      "transaction_type": "capture",
+      "transaction_type": "ingest",
       "confirmation": {
         "mutation": "operation_scope",
         "network_egress": "explicit",
@@ -708,11 +713,14 @@
       "configuration": {
         "path_requirements": [],
         "external_commands": [
-          "uvx"
+          "uv",
+          "claude"
         ]
       },
-      "verification_command": [],
-      "verification_reason": "the external YouTube transcript adapter has no bundled behavioral verifier"
+      "verification_command": [
+        "{python}",
+        "tests/test_youtube_ingest.py"
+      ]
     }
   ]
 }
