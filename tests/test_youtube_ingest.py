@@ -120,6 +120,45 @@ class BundleTests(Fixture):
         self.assertIn("1,500 rpm", refreshed)
         self.assertIn(address, refreshed.splitlines())
 
+    def test_force_with_a_new_track_adds_a_language_suffixed_capture(self):
+        yi.apply(self.vault, self.bundle(lang="ar", transcript="dubbed words")[0])
+        existing = yi.already_filed(self.vault, "zlv4TAi9Ob4")
+        bundle, note_path = self.bundle(existing=existing)
+        written = [w["path"] for w in bundle["writes"]]
+        suffixed = ".raw/youtube/Makita vs DeWalt Drill Test (Kaleb Ross) (en).md"
+        self.assertIn(suffixed, written)
+        self.assertNotIn(".raw/youtube/Makita vs DeWalt Drill Test (Kaleb Ross).md", written)
+        yi.apply(self.vault, bundle)
+        note = (self.vault / note_path).read_text(encoding="utf-8")
+        self.assertIn(f'transcript: "{suffixed}"', note)
+        self.assertIn("language: en", note)
+        # A second refresh with the same transcript reuses the suffixed capture.
+        again, _ = self.bundle(existing=existing, summary=SUMMARY.replace("1,450", "1,600"))
+        self.assertNotIn(suffixed, [w["path"] for w in again["writes"]])
+
+
+class TrackTests(unittest.TestCase):
+    def test_auto_dubbed_tracks_lose_to_the_original(self):
+        class Track:
+            def __init__(self, code, variant):
+                self.language_code, self.is_generated = code, True
+                self._url = f"https://www.youtube.com/api/timedtext?kind=asr&lang={code}&variant={variant}"
+
+            def fetch(self):
+                return [type("S", (), {"text": self.language_code})()]
+
+        tracks = [Track("ar", "timing-optimized"), Track("bn", "timing-optimized"), Track("en", "gemini")]
+
+        class Api:
+            def list(self, vid):
+                return tracks
+
+        module = type(sys)("youtube_transcript_api")
+        module.YouTubeTranscriptApi = Api
+        sys.modules["youtube_transcript_api"] = module
+        self.addCleanup(sys.modules.pop, "youtube_transcript_api")
+        self.assertEqual(("en", "en"), yi.fetch_transcript("zlv4TAi9Ob4"))
+
 
 if __name__ == "__main__":
     unittest.main()

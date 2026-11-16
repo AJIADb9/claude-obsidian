@@ -153,7 +153,10 @@ def fetch_transcript(vid, lang=None):
     available = list(api.list(vid))
     if not available:
         raise ValueError(f"no captions of any kind for {vid}")
-    chosen = ([t for t in available if not t.is_generated] or available)[0]
+    # Auto-dubbed tracks are generated too, flagged variant=timing-optimized; the original ASR is not.
+    dubbed = [t for t in available if "variant=timing-optimized" in getattr(t, "_url", "")]
+    chosen = ([t for t in available if not t.is_generated]
+              or [t for t in available if t not in dubbed] or available)[0]
     return " ".join(s.text for s in chosen.fetch()), chosen.language_code
 
 
@@ -248,6 +251,12 @@ def read_text(vault, relative):
     return path.read_bytes().decode("utf-8") if path.is_file() else None
 
 
+def raw_body(text):
+    """A raw capture's transcript: everything after its frontmatter."""
+    parts = text.split("\n---\n", 1)
+    return (parts[1] if text.startswith("---\n") and len(parts) == 2 else text).strip()
+
+
 def sha(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest() if text is not None else None
 
@@ -305,6 +314,17 @@ def build_bundle(vault, *, vid, title, author, lang, transcript, name, summary, 
             note_path = f"{NOTE_DIR}/{name} ({vid}).md"
     name = PurePosixPath(note_path).stem
     raw_path = f"{RAW_DIR}/{name}.md"
+    # Raw captures are create-only. A refresh whose transcript differs (say the original
+    # track replacing an auto-dub) gets a language-suffixed capture beside the old one.
+    raw_old = read_text(vault, raw_path)
+    if raw_old is not None and raw_body(raw_old) != transcript.strip():
+        raw_path = f"{RAW_DIR}/{name} ({lang}).md"
+        raw_old = read_text(vault, raw_path)
+        if raw_old is not None and raw_body(raw_old) != transcript.strip():
+            raise ValueError(f"{raw_path} already holds a different transcript")
+    raw_stem = PurePosixPath(raw_path).stem
+    # .raw/ is not indexed by lint, so only a same-name capture can be a wikilink.
+    transcript_ref = f"[[{name}]]" if raw_stem == name else raw_path
     url = f"https://www.youtube.com/watch?v={vid}"
     body = f"# {name}\n\n{summary.strip()}\n"
     if conventions is not None:
@@ -318,7 +338,7 @@ def build_bundle(vault, *, vid, title, author, lang, transcript, name, summary, 
         f"created: {today}", f"updated: {today}", "tags:", "  - youtube",
         "source: youtube", f"youtube_id: {vid}", f"url: {url}", f"author: {yaml_quote(author)}",
         f"date_fetched: {today}", f"language: {lang}", "enrichment: pending",
-        f"summarized_by: {yaml_quote(summarized_by)}", f"transcript: \"[[{name}]]\"", "---", "", body])
+        f"summarized_by: {yaml_quote(summarized_by)}", f"transcript: {yaml_quote(transcript_ref)}", "---", "", body])
     raw = (f"---\nsource: youtube\nyoutube_id: {vid}\nurl: {url}\nauthor: {yaml_quote(author)}\n"
            f"title: {yaml_quote(title)}\ndate_fetched: {today}\nlanguage: {lang}\n---\n\n{transcript}\n")
 
@@ -341,7 +361,7 @@ def build_bundle(vault, *, vid, title, author, lang, transcript, name, summary, 
         expected[path] = sha(old)
 
     write(note_path, note, note_old)
-    if read_text(vault, raw_path) is None:
+    if raw_old is None:
         write(raw_path, raw, None)
     catalog_old = read_text(vault, CATALOG)
     if catalog_old is not None:
@@ -363,7 +383,7 @@ def build_bundle(vault, *, vid, title, author, lang, transcript, name, summary, 
         "source_manifest_updates": {raw_path: {
             "hash": hashlib.md5(raw.encode("utf-8")).hexdigest(),
             "ingested_at": today,
-            "pages_created": [note_path, raw_path],
+            "pages_created": [note_path, raw_path] if raw_old is None else [note_path],
             "pages_updated": ["wiki/log.md"],
             "enrichment": "pending",
         }},
