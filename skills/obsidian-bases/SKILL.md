@@ -45,8 +45,8 @@ selected vault's `wiki/` directory.
    review and apply once:
 
    ```bash
-   python3 "$CORE" transaction inspect "$BUNDLE" --vault "$VAULT"
-   python3 "$CORE" transaction apply "$BUNDLE" --vault "$VAULT" \
+   uv run --no-project python "$CORE" transaction inspect "$BUNDLE" --vault "$VAULT"
+   uv run --no-project python "$CORE" transaction apply "$BUNDLE" --vault "$VAULT" \
      --approved-plan-sha256 "$APPROVAL_SHA256"
    ```
 8. Record static validation separately from native Obsidian rendering. Follow

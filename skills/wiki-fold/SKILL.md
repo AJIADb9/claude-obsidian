@@ -54,13 +54,13 @@ returns the fold id, the entry range, and one child record per entry as JSON. It
 writes nothing.
 
 ```bash
-python3 "$PRODUCT_ROOT/scripts/fold-extract.py" --vault /path/to/vault --k 4 --no-model
+uv run --no-project python "$PRODUCT_ROOT/scripts/fold-extract.py" --vault /path/to/vault --k 4 --no-model
 ```
 
 Use its output for the child list and the Child Entries table: those columns are
 derived by code from the entries themselves, so they cannot drift from the log.
 An entry is one `- **op** | title` bullet with its indented body, not a date
-heading — a single day usually holds several. Exit 5 means the log holds fewer
+heading; a single day usually holds several. Exit 5 means the log holds fewer
 than `2^k` entries; report the shortfall instead of folding a partial batch.
 
 Dropping `--no-model` adds one local-model pass that drafts only Key Outcomes and
@@ -116,9 +116,9 @@ commits, or one apply per file.
 Inspect before the single apply:
 
 ```bash
-python3 "$CORE" transaction inspect /path/to/fold-bundle.json --vault /path/to/vault
+uv run --no-project python "$CORE" transaction inspect /path/to/fold-bundle.json --vault /path/to/vault
 # Set APPROVAL_SHA256 to the inspect result's approval_sha256 after review.
-python3 "$CORE" transaction apply /path/to/fold-bundle.json --vault /path/to/vault \
+uv run --no-project python "$CORE" transaction apply /path/to/fold-bundle.json --vault /path/to/vault \
   --approved-plan-sha256 "$APPROVAL_SHA256"
 ```
 
@@ -137,7 +137,7 @@ newest first. Use it when the user asks to fold and archive the log.
    a title.
 
    ```bash
-   python3 "$PRODUCT_ROOT/scripts/log-archive.py" --vault VAULT --count 2^K \
+   uv run --no-project python "$PRODUCT_ROOT/scripts/log-archive.py" --vault VAULT --count 2^K \
      --prepend fold-entry.md --expect-fold fold.json --out DRAFT_DIR
    ```
 
@@ -161,7 +161,7 @@ idempotent. On exit 75, re-read and rebuild; after interruption, use
 Git history is a separate optional action:
 
 ```bash
-python3 "$CORE" checkpoint OPERATION_ID --vault /path/to/vault
+uv run --no-project python "$CORE" checkpoint OPERATION_ID --vault /path/to/vault
 ```
 
 Observe all selected entries, verify traceability and counts, then grow the

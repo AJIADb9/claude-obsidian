@@ -33,8 +33,8 @@ an active index or MOC update in that bundle; update the overview only when its
 stable high-level synthesis changed:
 
 ```bash
-python3 "$CORE" transaction inspect "$BUNDLE" --vault "$VAULT"
-python3 "$CORE" transaction apply "$BUNDLE" --vault "$VAULT" \
+uv run --no-project python "$CORE" transaction inspect "$BUNDLE" --vault "$VAULT"
+uv run --no-project python "$CORE" transaction apply "$BUNDLE" --vault "$VAULT" \
   --approved-plan-sha256 "$APPROVAL_SHA256"
 ```
 

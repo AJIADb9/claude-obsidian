@@ -74,7 +74,7 @@ Draft all changes before touching vault state. A complete Save normally couples:
 - `wiki/index.md` or the active methodology index;
 - one new entry in `wiki/log.md` above every existing entry (directly below
   the log title and introduction is fine), with existing lines unchanged.
-  Draft it with `python3 "$CORE" log-entry --vault /path/to/vault --op save
+  Draft it with `uv run --no-project python "$CORE" log-entry --vault /path/to/vault --op save
   --title "..." --detail "..." --output /path/to/log.md` rather than typing
   it: the command owns the entry format, places the entry under today's
   `## YYYY-MM-DD` heading, and prints the hashes for the bundle;
@@ -107,9 +107,9 @@ per-worker mutations for these vault changes.
 ## Preview and apply
 
 ```bash
-python3 "$CORE" workflow inspect /path/to/save-bundle.json --vault /path/to/vault
+uv run --no-project python "$CORE" workflow inspect /path/to/save-bundle.json --vault /path/to/vault
 # Set APPROVAL_SHA256 to the inspect result's approval_sha256 after review.
-python3 "$CORE" workflow apply /path/to/save-bundle.json --vault /path/to/vault \
+uv run --no-project python "$CORE" workflow apply /path/to/save-bundle.json --vault /path/to/vault \
   --approved-plan-sha256 "$APPROVAL_SHA256"
 ```
 
@@ -136,7 +136,7 @@ interrupted apply with `transaction recover`; never bypass the failure.
 Checkpointing is optional and explicit:
 
 ```bash
-python3 "$CORE" checkpoint OPERATION_ID --vault /path/to/vault
+uv run --no-project python "$CORE" checkpoint OPERATION_ID --vault /path/to/vault
 ```
 
 Before applying, observe what already exists, verify the preserved content and

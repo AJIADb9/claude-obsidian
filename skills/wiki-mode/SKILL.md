@@ -1,6 +1,6 @@
 ---
 name: wiki-mode
-description: "Read or configure the vault filing methodology and suggest destinations for planned knowledge creation under Generic, LYT, PARA, or Zettelkasten. Use for wiki mode, methodology mode, what is my vault mode, set vault mode, switch to PARA, use LYT, Zettelkasten setup, change mode, configure mode, or methodology routing. This skill does not save content or migrate notes."
+description: "Read or configure the vault filing methodology and suggest destinations for planned knowledge creation under Generic, LYT, PARA, or Zettelkasten. Use when the user asks which methodology the vault uses, wants to switch it (wiki mode, switch to PARA, use LYT, Zettelkasten setup), or asks where a planned note should be filed. This skill does not save content or migrate notes."
 ---
 
 # Route by vault methodology
@@ -30,10 +30,10 @@ selected vault's `wiki/` directory.
 Always select the vault explicitly:
 
 ```bash
-python3 "$MODE_HELPER" --vault "$VAULT" get
-python3 "$MODE_HELPER" --vault "$VAULT" config
-python3 "$MODE_HELPER" --vault "$VAULT" route concept "Concept name"
-python3 "$MODE_HELPER" --vault "$VAULT" route source "Source title"
+uv run --no-project python "$MODE_HELPER" --vault "$VAULT" get
+uv run --no-project python "$MODE_HELPER" --vault "$VAULT" config
+uv run --no-project python "$MODE_HELPER" --vault "$VAULT" route concept "Concept name"
+uv run --no-project python "$MODE_HELPER" --vault "$VAULT" route source "Source title"
 ```
 
 The helper validates the selected vault, confines paths, sanitizes names, and
@@ -86,7 +86,7 @@ A mode change is one configuration operation, dry-run first:
    current target hash and limits the write to `.vault-meta/mode.json`:
 
    ```bash
-   python3 "$CORE" mode set "$MODE" --vault "$VAULT" \
+   uv run --no-project python "$CORE" mode set "$MODE" --vault "$VAULT" \
      --generated-at "$GENERATED_AT" --operation-id "$OPERATION_ID"
    ```
 
@@ -95,7 +95,7 @@ A mode change is one configuration operation, dry-run first:
 6. Apply by regenerating that exact vault-bound plan:
 
    ```bash
-   python3 "$CORE" mode set "$MODE" --vault "$VAULT" \
+   uv run --no-project python "$CORE" mode set "$MODE" --vault "$VAULT" \
      --generated-at "$GENERATED_AT" --operation-id "$OPERATION_ID" \
      --approved-plan-sha256 "$APPROVAL_SHA256" --apply
    ```
@@ -111,6 +111,5 @@ operation with its own hashes and transaction.
 
 ## Checkpoint
 
-Observe the user's current structure, think about how they retrieve and act on
-notes, verify a few proposed routes before changing configuration, and grow by
-revisiting the mode only when real filing friction appears.
+Check a few proposed routes against the user's real structure before changing
+configuration.

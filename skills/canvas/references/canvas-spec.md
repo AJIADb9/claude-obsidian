@@ -187,12 +187,12 @@ Omit `color` entirely for the default (no border color, transparent label).
 
 ## Image Sizing Guidelines
 
-Calculate from actual image dimensions using PIL or `identify`:
+Calculate from actual image dimensions using `identify` (ImageMagick) or Pillow through uv:
 
 ```bash
-python3 -c "from PIL import Image; img=Image.open('path.png'); print(img.width, img.height)"
-# or
 identify -format '%w %h' path.png
+# or
+uv run --no-project --with pillow python -c "from PIL import Image; img=Image.open('path.png'); print(img.width, img.height)"
 ```
 
 | Aspect ratio | Condition | Canvas width | Canvas height |

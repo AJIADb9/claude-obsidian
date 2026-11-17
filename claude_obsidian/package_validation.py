@@ -298,7 +298,7 @@ def _validate_skill_helper_paths(root: Path) -> list[dict[str, str]]:
     """Executable prompts must not resolve product helpers from a user-vault cwd."""
 
     findings: list[dict[str, str]] = []
-    unresolved = re.compile(r"(?:python3|bash)\s+[\"']?(?:scripts|bin)/")
+    unresolved = re.compile(r"(?:python3?|bash)\s+[\"']?(?:scripts|bin)/")
     prompt_paths = list((root / "skills").glob("**/*.md"))
     prompt_paths.extend((root / "agents").glob("*.md"))
     for path in sorted(prompt_paths):

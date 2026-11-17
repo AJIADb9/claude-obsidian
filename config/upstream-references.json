@@ -414,19 +414,19 @@
     },
     {
       "path": "skills/defuddle/SKILL.md",
-      "sha256": "35958e30b3521ee04155e06253713871c11d82ee840271d9bb091f5c54efaeca"
+      "sha256": "205b37873b0a0d2f2e75de2515bbd95a36ca7f3127210f6e53dc6298f2ad2b3f"
     },
     {
       "path": "skills/obsidian-bases/SKILL.md",
-      "sha256": "3cd5676434bc86618802e07cf44ff9c7a5d4c10fb7ecb412775b9fef9cfa82be"
+      "sha256": "b5c7775f25d1f75a0cc79182f72584494b3b2254d50f7cbb230e2231ee06577c"
     },
     {
       "path": "skills/obsidian-markdown/SKILL.md",
-      "sha256": "c7c04184ba81b1f8482e647a56899bfc9796daa20acbd68e78c57b406d4351bf"
+      "sha256": "381c7c3e5a4ca837ed1dc7a67d1db86946d1d601d15d06cc8e95bcb974e1bdd8"
     },
     {
       "path": "skills/wiki-mode/SKILL.md",
-      "sha256": "47d267864295d6cda09c4f7f767cf24786ecfb843341506e7472c29ba870a2cf"
+      "sha256": "1eb93cde045b8e07974a9f12bea6fa1b1ee2e6249e4aa0fde96a580b9af35949"
     },
     {
       "path": "skills/wiki/references/coordination.md",
@@ -438,7 +438,7 @@
     },
     {
       "path": "skills/wiki/references/frontmatter.md",
-      "sha256": "650cb8ff10937d2289b48412a9ac7438d9d5eefa68a58fe99630d3d9102d224e"
+      "sha256": "fd57f9443670d824667e2f036ca23f6a50b77c29f4d0713cc7494e6cd550b2c7"
     },
     {
       "path": "skills/wiki/references/knowledge-recipes.md",
@@ -446,7 +446,7 @@
     },
     {
       "path": "skills/wiki/references/operation-transactions.md",
-      "sha256": "182a333e314f948d42504d48505bb76550276db17a27ae6081acfa9273330cd1"
+      "sha256": "9734ef01c5be2f685bc5c5557f96f135dad64d991804339a91c49db40a0c4039"
     },
     {
       "path": "skills/wiki/references/plugins.md",

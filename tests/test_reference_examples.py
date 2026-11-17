@@ -142,12 +142,13 @@ class ReferenceExampleTests(unittest.TestCase):
         self.assertEqual(["SORT", "file.name", "ASC"], shlex.split(lines[3]))
 
     def test_defuddle_shipped_external_plan_is_inert(self) -> None:
+        UV_PYTHON = "uv run --no-project python "
         snippets = blocks("skills/defuddle/SKILL.md", "bash")
         commands = []
         for snippet in snippets:
             for line in snippet.replace("\\\n", " ").splitlines():
-                if line.startswith("python3 "):
-                    commands.append(shlex.split(line))
+                if line.startswith(UV_PYTHON):
+                    commands.append(["python", *shlex.split(line[len(UV_PYTHON):])])
         plans = [argv for argv in commands if argv[2:5] == ["capture", "external-plan", "url"]]
         self.assertEqual(1, len(plans))
         argv = [str(ROOT / "scripts/claude-obsidian.py") if token == "$CORE"
@@ -157,7 +158,7 @@ class ReferenceExampleTests(unittest.TestCase):
                                 capture_output=True, text=True)
         plan = json.loads(result.stdout)
         self.assertFalse(plan["execute"])
-        self.assertTrue(all(command[0] == "python3" for command in commands))
+        self.assertTrue(all(command[0] == "python" for command in commands))
         self.assertTrue(all("defuddle" not in command[0] for command in commands))
 
     def test_manifest_pins_reviewed_sources_and_matches_actual_fallback_bytes(self) -> None:

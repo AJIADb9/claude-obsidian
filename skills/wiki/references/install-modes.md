@@ -38,9 +38,9 @@ A source clone is product/development code, not an automatically installed
 plugin and not the recommended user vault. Create a separate vault:
 
 ```bash
-python3 "$CORE" init /path/to/vault \
+uv run --no-project python "$CORE" init /path/to/vault \
   --generated-at <ISO-UTC> --operation-id init-reviewed
-python3 "$CORE" init /path/to/vault \
+uv run --no-project python "$CORE" init /path/to/vault \
   --generated-at <ISO-UTC> --operation-id init-reviewed \
   --approved-plan-sha256 <reviewed-sha256> --apply
 ```
@@ -48,9 +48,9 @@ python3 "$CORE" init /path/to/vault \
 Adopt an existing Obsidian vault non-destructively:
 
 ```bash
-python3 "$CORE" adopt /path/to/vault \
+uv run --no-project python "$CORE" adopt /path/to/vault \
   --generated-at <ISO-UTC> --operation-id adopt-reviewed
-python3 "$CORE" adopt /path/to/vault \
+uv run --no-project python "$CORE" adopt /path/to/vault \
   --generated-at <ISO-UTC> --operation-id adopt-reviewed \
   --approved-plan-sha256 <reviewed-sha256> --apply
 ```

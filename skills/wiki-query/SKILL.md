@@ -59,14 +59,14 @@ before substantially broadening the scope.
    whether retrieval is verified:
 
    ```bash
-   python3 "$CORE" contracts --vault "$VAULT" --verify --capability wiki-retrieve
+   uv run --no-project python "$CORE" contracts --vault "$VAULT" --verify --capability wiki-retrieve
    ```
 
 4. When the report marks `wiki-retrieve` as `verified`, query its prebuilt
    contextual/BM25 index in the read-only mode:
 
    ```bash
-   python3 "$RETRIEVE" --vault "$VAULT" "$QUERY" --top 5 --no-rerank --explain
+   uv run --no-project python "$RETRIEVE" --vault "$VAULT" "$QUERY" --top 5 --no-rerank --explain
    ```
 
    Increase `--top` for deep work. Do not provision, rebuild, or refresh caches
@@ -114,6 +114,5 @@ from this skill.
 
 ## Checkpoint
 
-Observe what the vault actually contains, think about contradictory or missing
-evidence, verify every material citation, and grow by naming the next evidence
-gap without mutating the vault.
+Cite every material claim, and name the next evidence gap without changing the
+vault.

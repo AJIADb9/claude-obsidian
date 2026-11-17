@@ -58,10 +58,10 @@ Capture maturity is adapter-dependent:
   the CUDA-enabled `docling` uv tool's interpreter (local, no cloud, built-in
   OCR). Never `uvx docling`; that copy is CPU-only.
 
-  ```powershell
-  $d2m = "$(uv tool dir)\docling\Scripts\python.exe"
-  & $d2m ~\.claude\bin\doc2md.py $FILE > "$SCRATCH\$NAME.md"   # add --pages 1-5 for a range
-  & $d2m ~\.claude\bin\doc2md.py $F1 $F2 -o $SCRATCH            # batch: one model load
+  ```bash
+  d2m="$(uv tool dir)/docling/bin/python"
+  "$d2m" ~/.claude/bin/doc2md.py "$FILE" > "$SCRATCH/$NAME.md"   # add --pages 1-5 for a range
+  "$d2m" ~/.claude/bin/doc2md.py "$F1" "$F2" -o "$SCRATCH"        # batch: one model load
   ```
 
   Paginated inputs (PDF, images, pptx) carry `<!-- page N -->` anchors; cite
@@ -137,7 +137,7 @@ Draft a single `claude-obsidian.transaction.v1` bundle with
   or removal; update `wiki/index.md` only when it is an active catalog, and
   `wiki/overview.md` only when the high-level picture changed;
 - one batch log entry above every existing entry, drafted with
-  `python3 "$CORE" log-entry --op ingest --title "..." --output FILE` rather
+  `uv run --no-project python "$CORE" log-entry --op ingest --title "..." --output FILE` rather
   than typed, and a refreshed hot cache.
 
 The workflow gate requires a source (a create-only `.raw/` payload or a recorded
@@ -151,9 +151,9 @@ per-source/per-worker applies.
 ## Preview, apply, and recover
 
 ```bash
-python3 "$CORE" workflow inspect /path/to/ingest-bundle.json --vault /path/to/vault
+uv run --no-project python "$CORE" workflow inspect /path/to/ingest-bundle.json --vault /path/to/vault
 # Set APPROVAL_SHA256 to the inspect result's approval_sha256 after review.
-python3 "$CORE" workflow apply /path/to/ingest-bundle.json --vault /path/to/vault \
+uv run --no-project python "$CORE" workflow apply /path/to/ingest-bundle.json --vault /path/to/vault \
   --approved-plan-sha256 "$APPROVAL_SHA256"
 ```
 
@@ -180,7 +180,7 @@ re-read and rebuild. Use `transaction recover` after interruption.
 Create a Git checkpoint only when requested:
 
 ```bash
-python3 "$CORE" checkpoint OPERATION_ID --vault /path/to/vault
+uv run --no-project python "$CORE" checkpoint OPERATION_ID --vault /path/to/vault
 ```
 
 Observe the source and existing vault first, verify every claim against its

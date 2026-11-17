@@ -51,7 +51,7 @@ After a successful claude-obsidian transaction, an explicitly requested
 checkpoint is:
 
 ```bash
-python3 "$CORE" checkpoint OPERATION_ID --vault "$VAULT"
+uv run --no-project python "$CORE" checkpoint OPERATION_ID --vault "$VAULT"
 ```
 
 The command verifies recorded hashes, refuses any pre-existing staged state,

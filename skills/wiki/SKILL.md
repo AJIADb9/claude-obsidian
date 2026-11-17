@@ -14,7 +14,7 @@ path:
 
 ```bash
 CORE=/absolute/product/root/scripts/claude-obsidian.py
-python3 "$CORE" --help
+uv run --no-project python "$CORE" --help
 ```
 
 Resolve a vault in this order: explicit `--vault`,
@@ -32,9 +32,9 @@ Use the deterministic setup commands. Both are dry-run by default.
 For a new, separate vault:
 
 ```bash
-python3 "$CORE" init /absolute/path/to/vault \
+uv run --no-project python "$CORE" init /absolute/path/to/vault \
   --generated-at <ISO-UTC> --operation-id init-reviewed
-python3 "$CORE" init /absolute/path/to/vault \
+uv run --no-project python "$CORE" init /absolute/path/to/vault \
   --generated-at <ISO-UTC> --operation-id init-reviewed \
   --approved-plan-sha256 <reviewed-sha256> --apply
 ```
@@ -42,9 +42,9 @@ python3 "$CORE" init /absolute/path/to/vault \
 For an existing Obsidian vault:
 
 ```bash
-python3 "$CORE" adopt /absolute/path/to/vault \
+uv run --no-project python "$CORE" adopt /absolute/path/to/vault \
   --generated-at <ISO-UTC> --operation-id adopt-reviewed
-python3 "$CORE" adopt /absolute/path/to/vault \
+uv run --no-project python "$CORE" adopt /absolute/path/to/vault \
   --generated-at <ISO-UTC> --operation-id adopt-reviewed \
   --approved-plan-sha256 <reviewed-sha256> --apply
 ```
@@ -97,7 +97,7 @@ After a successful apply, report the operation ID and exact changed paths. If th
 user explicitly wants a Git checkpoint, run it separately:
 
 ```bash
-python3 "$CORE" checkpoint OPERATION_ID --vault /absolute/path/to/vault
+uv run --no-project python "$CORE" checkpoint OPERATION_ID --vault /absolute/path/to/vault
 ```
 
 On a conflict, re-read and rebuild. On interruption, use `transaction recover`.
@@ -139,9 +139,8 @@ Read only the reference needed for the current request:
 - [model-guidance.md](references/model-guidance.md) when evaluating a model,
   changing a generation adapter, or validating host-specific prompting.
 
-## Think, verify, grow
+## Operation size
 
-Before applying, pause once: observe existing state, verify the vault selection
-and evidence, then choose the smallest reversible operation that satisfies the
-request. Afterward, report uncertainty and the next useful improvement without
-performing it automatically.
+Choose the smallest reversible operation that satisfies the request. Afterward,
+report uncertainty and the next useful improvement without performing it
+automatically.

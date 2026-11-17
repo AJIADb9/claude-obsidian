@@ -74,6 +74,5 @@ surface, not a lock manager, transaction engine, or Git checkpoint mechanism.
 
 ## Checkpoint
 
-Observe actual capability, think about the least complex read transport, verify
-that every resolved path stays in the vault, and accept filesystem fallback
-when the CLI is not ready.
+Every resolved path must stay inside the vault. Fall back to the filesystem when
+the CLI is not ready.

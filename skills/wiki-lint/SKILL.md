@@ -26,9 +26,9 @@ selected vault's `wiki/` directory.
 Resolve the user vault, then run one of:
 
 ```bash
-python3 "$CORE" lint --vault "$VAULT"
-python3 "$CORE" lint --vault "$VAULT" --format markdown
-python3 "$CORE" lint --vault "$VAULT" --exclude "wiki/scratchpad/*"
+uv run --no-project python "$CORE" lint --vault "$VAULT"
+uv run --no-project python "$CORE" lint --vault "$VAULT" --format markdown
+uv run --no-project python "$CORE" lint --vault "$VAULT" --exclude "wiki/scratchpad/*"
 ```
 
 The repeatable `--exclude GLOB` flag scopes a path (for example a scratchpad
@@ -87,7 +87,7 @@ For `convention_violations`, the repair can be drafted instead of hand-built,
 one kind per bundle, once the user chooses it:
 
 ```bash
-python3 "$PRODUCT_ROOT/scripts/conventions-repair.py" --vault "$VAULT" \
+uv run --no-project python "$PRODUCT_ROOT/scripts/conventions-repair.py" --vault "$VAULT" \
   --fix frontmatter --out DRAFT_DIR    # or --fix text, --fix catalogs
 ```
 
@@ -96,6 +96,4 @@ It writes nothing to the vault; it writes `DRAFT_DIR/bundle.json` (a
 
 ## Checkpoint
 
-Observe the deterministic report, think about root causes rather than finding
-count, verify proposed repairs against current hashes, and grow by improving the
-workflow that produced repeated findings.
+Verify proposed repairs against current hashes before applying them.

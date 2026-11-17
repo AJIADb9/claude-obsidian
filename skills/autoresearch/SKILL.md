@@ -73,32 +73,28 @@ write "the web has nothing on this" on the strength of one non-200 response**,
 and never let a blocked page become the justification for a weaker evidence
 base.
 
-When WebFetch returns 402, 403, 429, an empty shell, or a login wall, fall back
-to the **`web-search-fallback`** skill and retry the same URL with `curl` and a
-browser User-Agent, which many hosts answer where they refuse a bare fetcher:
-
-```bash
-curl -sL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" "<url>"
-```
-
-Measured to work on hosts that 402 to WebFetch (Fandom wikis among them). Escalate
+When a page read returns 402, 403, 429, an empty shell, or a login wall, escalate
 in this order and stop at the first that returns content:
 
-1. `curl -sL -A "<browser UA>"` on the same URL.
+1. A fresh fetch of the same URL through the session's page-reading tool (on
+   this machine `mcp__web__crawl` with `fresh=true`; the router already steps
+   through fast HTTP, Chromium, a stealth browser and Firecrawl).
 2. The site's own structured endpoint. MediaWiki hosts serve `?action=raw` for
    wikitext and `api.php?action=query&prop=revisions&rvprop=timestamp|user` for
    authorship and last-edited dates - better provenance than the rendered page.
-3. That skill's `search.py` for discovery, when the problem is *which* page
-   exists rather than reading a known one.
+3. A web search for discovery, when the problem is *which* page exists rather
+   than reading a known one.
 4. A real browser (Chrome MCP tools) only for client-rendered targets.
 
-The fallback is still public egress: it needs the same approval, the same
-domain scope, and the same source record as any other fetch. Record the tool
-that succeeded alongside the URL, because "402 to WebFetch, 200 to curl" is
-itself a reusable fact about that host.
+If the tool reports that the user declined the fetch (the `web` router returns
+`Blocked:`), record the source as unavailable and do not route around it. Every
+route is still public egress: it needs the same approval, the same domain scope,
+and the same source record as any other fetch. Record the route that succeeded
+alongside the URL, because "403 to plain HTTP, 200 to a browser" is itself a
+reusable fact about that host.
 
-⚠️ **Rate-limit politely.** Both `curl` retries and the fallback search engines
-throttle; space them out rather than looping.
+⚠️ **Rate-limit politely.** Retries and search engines throttle; space them out
+rather than looping.
 
 Parallel agents may search and return source records, evidence, and page drafts.
 They never mutate the vault, reserve addresses, or merge canonical pages. The
@@ -129,7 +125,7 @@ The dossier operation may couple:
 - source and claim ledger updates;
 - manifest and address requests;
 - index, log, and hot-cache changes required to expose the dossier, with the
-  log entry drafted by `python3 "$CORE" log-entry --op autoresearch` rather
+  log entry drafted by `uv run --no-project python "$CORE" log-entry --op autoresearch` rather
   than typed.
 
 Every canonical page create or removal must update at least one active
@@ -141,9 +137,9 @@ contradictions, coverage gaps, raw captures, create/replace paths, and consumed
 budget before applying:
 
 ```bash
-python3 "$CORE" transaction inspect /path/to/research-bundle.json --vault /path/to/vault
+uv run --no-project python "$CORE" transaction inspect /path/to/research-bundle.json --vault /path/to/vault
 # Set APPROVAL_SHA256 to the inspect result's approval_sha256 after review.
-python3 "$CORE" transaction apply /path/to/research-bundle.json --vault /path/to/vault \
+uv run --no-project python "$CORE" transaction apply /path/to/research-bundle.json --vault /path/to/vault \
   --approved-plan-sha256 "$APPROVAL_SHA256"
 ```
 
@@ -164,7 +160,7 @@ identical bundle. On conflict, re-read and rebuild; after interruption, run
 `transaction recover`. Create a Git checkpoint only if explicitly requested:
 
 ```bash
-python3 "$CORE" checkpoint OPERATION_ID --vault /path/to/vault
+uv run --no-project python "$CORE" checkpoint OPERATION_ID --vault /path/to/vault
 ```
 
 Observe the existing knowledge boundary, verify source independence and

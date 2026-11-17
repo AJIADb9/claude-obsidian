@@ -53,9 +53,9 @@ Do not overload one ledger with all three jobs.
 Run migration as a dry-run first:
 
 ```bash
-python3 "$CORE" migrate --vault VAULT \
+uv run --no-project python "$CORE" migrate --vault VAULT \
   --generated-at <ISO-UTC> --operation-id migrate-reviewed
-python3 "$CORE" migrate --vault VAULT \
+uv run --no-project python "$CORE" migrate --vault VAULT \
   --generated-at <ISO-UTC> --operation-id migrate-reviewed \
   --approved-plan-sha256 <reviewed-sha256> --apply
 ```

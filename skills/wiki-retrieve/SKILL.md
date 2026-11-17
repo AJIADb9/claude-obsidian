@@ -1,6 +1,6 @@
 ---
 name: wiki-retrieve
-description: "Build and query a vault-local contextual BM25 retrieval index with optional multilingual Nomic cosine reranking; use for retrieve, hybrid retrieval, BM25, rerank, contextual retrieval, chunk search, vault search, semantic search, find relevant passages, or retrieval diagnostics. Derived caches stay under .vault-meta, remote egress requires explicit consent, and unavailable reranking falls back deterministically."
+description: "Build and query a vault-local contextual BM25 retrieval index with optional multilingual Nomic cosine reranking. Use to build, refresh, or diagnose the vault's retrieval index, and for ranked passage search over the vault (BM25, rerank, hybrid or semantic vault search). Derived caches stay under .vault-meta, remote egress requires explicit consent, and unavailable reranking falls back deterministically."
 ---
 
 # Retrieve relevant passages
@@ -36,10 +36,10 @@ test -f "$PREFIX" && test -f "$BM25" && test -f "$RETRIEVE" && test -f "$RERANK"
 Preview first, then build synthetic prefixes without network egress:
 
 ```bash
-python3 "$PREFIX" --vault "$VAULT" --all --no-llm --peek
-python3 "$PREFIX" --vault "$VAULT" --all --no-llm
-python3 "$BM25" --vault "$VAULT" build
-python3 "$RETRIEVE" --vault "$VAULT" "wiki" --top 1 --no-rerank --explain
+uv run --no-project python "$PREFIX" --vault "$VAULT" --all --no-llm --peek
+uv run --no-project python "$PREFIX" --vault "$VAULT" --all --no-llm
+uv run --no-project python "$BM25" --vault "$VAULT" build
+uv run --no-project python "$RETRIEVE" --vault "$VAULT" "wiki" --top 1 --no-rerank --explain
 ```
 
 Chunk and index files are disposable runtime state. Incremental prefixing skips
@@ -66,8 +66,8 @@ Local model prefixes are a separate explicit option. Use an already installed
 exact `name:tag`; no server is started and no model is installed or pulled:
 
 ```bash
-python3 "$PREFIX" --vault "$VAULT" --all --local-ollama --ollama-model installed:tag --peek
-python3 "$PREFIX" --vault "$VAULT" --all --local-ollama --ollama-model installed:tag
+uv run --no-project python "$PREFIX" --vault "$VAULT" --all --local-ollama --ollama-model installed:tag --peek
+uv run --no-project python "$PREFIX" --vault "$VAULT" --all --local-ollama --ollama-model installed:tag
 ```
 
 The prefix adapter verifies cloud-disabled server status and local model
@@ -88,7 +88,7 @@ and endpoint policy; selecting local prefixes does not enable reranking.
 For a strictly read-only lookup, use the prebuilt BM25 index:
 
 ```bash
-python3 "$RETRIEVE" --vault "$VAULT" "$QUERY" --top 5 --no-rerank --explain
+uv run --no-project python "$RETRIEVE" --vault "$VAULT" "$QUERY" --top 5 --no-rerank --explain
 ```
 
 For an explicitly requested rerank, omit `--no-rerank`. The default is Ollama's
@@ -113,10 +113,10 @@ An untagged model request matches only the installed untagged name or its
 Use direct diagnostics when needed:
 
 ```bash
-python3 "$BM25" --vault "$VAULT" stats
-python3 "$BM25" --vault "$VAULT" query "$QUERY" --top 10
-python3 "$RERANK" --vault "$VAULT" "$QUERY" --peek
-python3 "$RERANK" --vault "$VAULT" "$QUERY" --model nomic-embed-text --peek
+uv run --no-project python "$BM25" --vault "$VAULT" stats
+uv run --no-project python "$BM25" --vault "$VAULT" query "$QUERY" --top 10
+uv run --no-project python "$RERANK" --vault "$VAULT" "$QUERY" --peek
+uv run --no-project python "$RERANK" --vault "$VAULT" "$QUERY" --model nomic-embed-text --peek
 ```
 
 ## Integrity rules
@@ -141,6 +141,4 @@ measurement and never silently rebuilds an index or calls a model.
 
 ## Checkpoint
 
-Observe cache readiness and privacy boundaries, think about whether lexical or
-semantic ranking is needed, verify returned paths and source freshness, and
-grow by measuring retrieval misses against a maintained local query set.
+Check returned paths and source freshness before citing results.

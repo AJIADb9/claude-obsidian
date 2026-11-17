@@ -29,13 +29,13 @@ commit from a generic lifecycle hook.
 3. Have workers return drafts and evidence. Workers do not edit shared vault
    state.
 4. Build one `claude-obsidian.transaction.v1` JSON bundle.
-5. Run `python3 "$CORE" transaction inspect BUNDLE --vault VAULT`.
+5. Run `uv run --no-project python "$CORE" transaction inspect BUNDLE --vault VAULT`.
 6. Show destructive, external, or canonical-merge proposals to the user before
    applying them.
 7. Pass the inspect result's exact `approval_sha256`, which binds the expanded
    plan to the canonical resolved vault root and cannot be reused for another
    vault:
-   `python3 "$CORE" transaction apply BUNDLE --vault VAULT --approved-plan-sha256 HASH`.
+   `uv run --no-project python "$CORE" transaction apply BUNDLE --vault VAULT --approved-plan-sha256 HASH`.
 8. Report the resulting operation ID and changed paths.
 9. If the user wants Git history, run the separate explicit checkpoint command.
 
@@ -128,7 +128,7 @@ Windows or Git Bash (setup and troubleshooting: `docs/windows-wsl.md`).
 ## Explicit checkpoint
 
 ```bash
-python3 "$CORE" checkpoint OPERATION_ID --vault VAULT \
+uv run --no-project python "$CORE" checkpoint OPERATION_ID --vault VAULT \
   --as-of YYYY-MM-DD
 ```
 

@@ -128,9 +128,9 @@ Read [operation-transactions.md](../wiki/references/operation-transactions.md),
 then inspect the bundle before applying it:
 
 ```bash
-python3 "$CORE" transaction inspect BUNDLE --vault VAULT
+uv run --no-project python "$CORE" transaction inspect BUNDLE --vault VAULT
 # Set APPROVAL_SHA256 to the inspect result's approval_sha256 after review.
-python3 "$CORE" transaction apply BUNDLE --vault VAULT \
+uv run --no-project python "$CORE" transaction apply BUNDLE --vault VAULT \
   --approved-plan-sha256 "$APPROVAL_SHA256"
 ```
 

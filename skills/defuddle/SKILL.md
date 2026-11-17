@@ -31,8 +31,8 @@ parameters, and non-public hosts or IP addresses. Never interpolate a URL into a
 shell string. Use one argv element when constructing a plan:
 
 ```bash
-python3 "$CORE" capture external-plan url "HTTPS_URL"
-python3 "$CORE" contracts --verify --capability defuddle --vault "$VAULT"
+uv run --no-project python "$CORE" capture external-plan url "HTTPS_URL"
+uv run --no-project python "$CORE" contracts --verify --capability defuddle --vault "$VAULT"
 ```
 
 The plan executes no network request. Report the normalized host, required
@@ -71,11 +71,11 @@ in the selected vault's `inbox/` first. Preview and apply the filesystem plan
 with a pinned timestamp and operation ID:
 
 ```bash
-python3 "$CORE" capture plan --vault "$VAULT" "$VAULT/inbox/source.md"
-python3 "$CORE" capture apply --vault "$VAULT" "$VAULT/inbox/source.md" \
+uv run --no-project python "$CORE" capture plan --vault "$VAULT" "$VAULT/inbox/source.md"
+uv run --no-project python "$CORE" capture apply --vault "$VAULT" "$VAULT/inbox/source.md" \
   --generated-at "$GENERATED_AT" --operation-id "$OPERATION_ID"
 # Set APPROVAL_SHA256 to the reviewed approved_plan_sha256 from the dry run.
-python3 "$CORE" capture apply --vault "$VAULT" "$VAULT/inbox/source.md" \
+uv run --no-project python "$CORE" capture apply --vault "$VAULT" "$VAULT/inbox/source.md" \
   --generated-at "$GENERATED_AT" --operation-id "$OPERATION_ID" \
   --approved-plan-sha256 "$APPROVAL_SHA256" --apply
 ```

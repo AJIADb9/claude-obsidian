@@ -64,7 +64,7 @@ audio transcription as a separate, separately consented step.
 
 The script does the token-heavy, judgment-light half. The judgment-heavy half
 reads the summary, not the transcript, and belongs to the session model. Do it
-right after the script, before any chat output, through
+right after the script, before the final chat summary, through
 [wiki-ingest](../wiki-ingest/SKILL.md) as one transaction (several videos from
 one session may share one):
 
@@ -86,7 +86,7 @@ one session may share one):
 recovery queue, not the normal end state. If enrichment cannot run, leave the
 note pending and say so.
 
-## Report once, at the end
+## Final summary
 
 Finish every fetch and transaction before writing the chat summary, and make it
 the final message, with no tool calls after it: a one-to-three sentence TL;DR,
